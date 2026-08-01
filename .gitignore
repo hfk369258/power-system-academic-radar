@@ -1,0 +1,40 @@
+# 本机凭据：绝不能提交
+radar.env.ps1
+radar.env_*.ps1
+profiles/
+.env
+.env.*
+!.env.example
+
+# 运行产物与用户数据
+logs/
+outputs/
+work/
+manual_exports/
+state*.json
+runtime_config*.json
+*.bak
+*.tmp
+*.pid
+
+# Python / 编辑器
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+*.log
+*.zip
+*.clixml
+.idea/
+.vscode/
+Thumbs.db
+desktop.ini
+.DS_Store

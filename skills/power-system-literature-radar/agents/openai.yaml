@@ -1,0 +1,4 @@
+interface:
+  display_name: "Power System Literature Radar"
+  short_description: "Monitor power-system papers from APIs, RSS, IEEE, and CNKI exports."
+  default_prompt: "Use $power-system-literature-radar to configure and run a recent-paper digest for power system configuration and optimal dispatch."

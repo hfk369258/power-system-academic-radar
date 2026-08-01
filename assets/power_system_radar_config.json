@@ -1,0 +1,312 @@
+{
+    "profile":  {
+                    "name":  "power-system-and-ies-optimization",
+                    "timezone":  "Asia/Shanghai",
+                    "lookback_days":  14,
+                    "backfill_lookback_days":  365,
+                    "candidate_results_per_source":  200,
+                    "daily_target_items":  10,
+                    "max_results_per_source":  25,
+                    "output_dir":  "outputs/power-system-radar-basic",
+                    "state_file":  "work/power-system-radar/state_basic.json",
+                    "digest_language":  "zh-CN"
+                },
+    "schedule":  {
+                     "frequency":  "daily",
+                     "time":  "08:30",
+                     "day_of_week":  "Monday"
+                 },
+    "keywords":  {
+                     "core":  [
+                                  "power system",
+                                  "smart grid",
+                                  "distribution network",
+                                  "integrated energy system"
+                              ],
+                     "configuration":  [
+                                           "planning",
+                                           "network reconfiguration",
+                                           "capacity configuration"
+                                       ],
+                     "dispatch":  [
+                                      "optimal dispatch",
+                                      "economic dispatch",
+                                      "unit commitment",
+                                      "optimal power flow"
+                                  ],
+                     "resources":  [
+                                       "energy storage",
+                                       "demand response",
+                                       "renewable integration",
+                                       "microgrid"
+                                   ],
+                     "methods":  [
+                                     "optimization",
+                                     "robust optimization",
+                                     "stochastic optimization",
+                                     "machine learning"
+                                 ],
+                     "llm_power":  [
+                                       "large language model",
+                                       "generative AI",
+                                       "AI agent"
+                                   ],
+                     "chinese":  [
+                                     "电力系统",
+                                     "智能电网",
+                                     "配电网",
+                                     "综合能源系统",
+                                     "优化调度",
+                                     "最优潮流",
+                                     "储能",
+                                     "需求响应",
+                                     "新能源消纳",
+                                     "微电网"
+                                 ],
+                     "exclude":  [
+                                     "power amplifier",
+                                     "semiconductor",
+                                     "wireless power transfer",
+                                     "battery chemistry",
+                                     "converter topology",
+                                     "image classification"
+                                 ]
+                 },
+    "queries":  {
+                    "auto_from_keywords":  true,
+                    "english":  "(\"power system optimization\" OR \"integrated energy system\" OR \"power system\" OR \"smart grid\" OR microgrid OR \"distribution network\") AND (\"optimal dispatch\" OR \"economic dispatch\" OR \"unit commitment\" OR \"optimal power flow\" OR \"energy management\" OR planning OR \"capacity configuration\" OR scheduling OR optimization OR \"large language model\" OR LLM OR \"foundation model\" OR \"generative AI\" OR RAG OR \"AI agent\")",
+                    "chinese":  "(电力系统优化 OR 综合能源系统优化 OR 电力系统 OR 综合能源系统) AND (优化调度 OR 经济调度 OR 机组组合 OR 最优潮流 OR 优化配置 OR 协同优化 OR 低碳优化 OR 大语言模型 OR 大模型 OR 人工智能 OR 深度学习 OR 强化学习 OR 智能体 OR 知识图谱)"
+                },
+    "sources":  [
+                    {
+                        "name":  "openalex",
+                        "type":  "openalex",
+                        "enabled":  true,
+                        "max_results":  50
+                    },
+                    {
+                        "name":  "crossref",
+                        "type":  "crossref",
+                        "enabled":  true,
+                        "max_results":  50
+                    },
+                    {
+                        "name":  "arxiv",
+                        "type":  "arxiv",
+                        "enabled":  false,
+                        "max_results":  25,
+                        "query_override":  "all:(\"power system\" OR \"optimal dispatch\" OR \"optimal power flow\" OR \"unit commitment\" OR microgrid)"
+                    },
+                    {
+                        "name":  "semantic_scholar",
+                        "type":  "semantic_scholar",
+                        "enabled":  true,
+                        "max_results":  50,
+                        "api_key_env":  "SEMANTIC_SCHOLAR_API_KEY"
+                    },
+                    {
+                        "name":  "ieee_xplore",
+                        "type":  "ieee_xplore_api",
+                        "enabled":  true,
+                        "api_key_env":  "IEEE_XPLORE_API_KEY",
+                        "max_results":  25
+                    },
+                    {
+                        "name":  "elsevier_scopus",
+                        "type":  "elsevier_scopus_api",
+                        "enabled":  true,
+                        "api_key_env":  "ELSEVIER_API_KEY",
+                        "max_results":  25,
+                        "max_abstract_enrichment":  10,
+                        "query_override":  "TITLE-ABS-KEY((\"power system\" OR \"distribution network\" OR \"smart grid\" OR \"integrated energy system\" OR microgrid) AND (\"optimal dispatch\" OR \"economic dispatch\" OR \"unit commitment\" OR \"optimal power flow\" OR \"network reconfiguration\" OR \"capacity configuration\" OR planning OR \"large language model\" OR LLM OR \"foundation model\" OR \"generative AI\" OR RAG OR \"AI agent\"))"
+                    },
+                    {
+                        "name":  "journal_rss",
+                        "type":  "rss",
+                        "enabled":  false,
+                        "max_results":  50,
+                        "urls":  [
+                                     "https://example.com/replace-with-open-journal-or-preprint-feed.xml"
+                                 ]
+                    }
+                ],
+    "manual_exports":  {
+                           "enabled":  true,
+                           "paths":  [
+                                         "manual_exports/cnki",
+                                         "manual_exports/ieee",
+                                         "manual_exports/wos_scopus",
+                                         "manual_exports/open_preprints"
+                                     ],
+                           "formats":  [
+                                           "ris",
+                                           "bib",
+                                           "csv",
+                                           "txt"
+                                       ]
+                       },
+    "interpretation":  {
+                           "enabled":  true,
+                           "language":  "zh-CN",
+                           "max_items":  0,
+                           "style":  "research-reading",
+                           "sections":  [
+                                            "研究问题",
+                                            "方法路线",
+                                            "可能创新点",
+                                            "应用场景",
+                                            "对你课题的借鉴价值",
+                                            "需要阅读全文核实"
+                                        ]
+                       },
+    "journal_filter":  {
+                           "enabled":  true,
+                           "allow_missing_venue":  false,
+                           "journal_articles_only":  true,
+                           "allow_preprints":  false,
+                           "allow_conference_papers":  false,
+                           "allow_missing_document_type":  true,
+                           "note":  "Conservative whitelist only. Do not include broad power-engineering journals such as EPSR unless the user explicitly adds them.",
+                           "categories":  {
+                                              "ieee_transactions":  [
+                                                                        "IEEE Transactions on Power Systems",
+                                                                        "IEEE Transactions on Smart Grid",
+                                                                        "IEEE Transactions on Power Delivery",
+                                                                        "IEEE Transactions on Sustainable Energy",
+                                                                        "IEEE Transactions on Energy Conversion",
+                                                                        "IEEE Transactions on Industry Applications",
+                                                                        "IEEE Transactions on Industrial Informatics",
+                                                                        "IEEE Transactions on Energy Markets, Policy and Regulation"
+                                                                    ],
+                                              "elsevier_q1_or_high_if_sci":  [
+                                                                                 "Applied Energy",
+                                                                                 "Energy",
+                                                                                 "Renewable and Sustainable Energy Reviews",
+                                                                                 "Energy Conversion and Management",
+                                                                                 "International Journal of Electrical Power \u0026 Energy Systems"
+                                                                             ],
+                                              "sci_if_above_10_watchlist":  [
+                                                                                "Nature Energy",
+                                                                                "Nature Communications",
+                                                                                "Cell Reports Physical Science",
+                                                                                "Proceedings of the IEEE",
+                                                                                "IEEE Internet of Things Journal"
+                                                                            ],
+                                              "chinese_ei":  [
+                                                                 "中国电机工程学报",
+                                                                 "电力系统自动化",
+                                                                 "电网技术",
+                                                                 "电力系统保护与控制",
+                                                                 "高电压技术",
+                                                                 "电工技术学报",
+                                                                 "电力自动化设备"
+                                                             ]
+                                          },
+                           "excluded_venues":  [
+                                                   "Electric Power Systems Research",
+                                                   "Energy Reports",
+                                                   "Sustainable Energy, Grids and Networks"
+                                               ],
+                           "allowed_venues":  [
+
+                                              ],
+                           "allowed_venue_patterns":  [
+                                                          "^IEEE Trans\\. Power Syst\\.?$",
+                                                          "^IEEE Trans\\. Smart Grid$",
+                                                          "^IEEE Trans\\. Power Deliv\\.?$",
+                                                          "^IEEE Trans\\. Sustain\\. Energy$",
+                                                          "^IEEE Trans\\. Energy Convers\\.?$",
+                                                          "^CSEE Journal of Power and Energy Systems$"
+                                                      ]
+                       },
+    "output_policy":  {
+                          "full_analysis_requires_oa":  true,
+                          "non_oa_mode":  "abstract_analysis"
+                      },
+    "abstract_enrichment":  {
+                                "enabled":  true,
+                                "max_items":  40,
+                                "timeout_seconds":  20,
+                                "title_min_similarity":  0.72,
+                                "semantic_scholar_min_interval_seconds":  1.2,
+                                "semantic_scholar_if_key":  true,
+                                "semantic_scholar_api_key_env":  "SEMANTIC_SCHOLAR_API_KEY"
+                            },
+    "llm_interpretation":  {
+                               "enabled":  true,
+                               "provider":  "deepseek",
+                               "api_key_env":  "DEEPSEEK_API_KEY",
+                               "model":  "deepseek-v4-flash",
+                               "base_url":  "https://api.deepseek.com/chat/completions",
+                               "max_items":  0,
+                               "timeout_seconds":  90,
+                               "attempts":  2,
+                               "retry_delay_seconds":  1.0,
+                               "temperature":  0.2,
+                               "max_tokens":  4000
+                           },
+    "scoring":  {
+                    "min_score":  4,
+                    "weights":  {
+                                    "core":  4,
+                                    "configuration":  3,
+                                    "dispatch":  4,
+                                    "resources":  2,
+                                    "methods":  1,
+                                    "llm_power":  5,
+                                    "chinese":  4
+                                },
+                    "require_any_group":  [
+                                              "core",
+                                              "chinese"
+                                          ]
+                },
+    "notifications":  {
+                          "email":  {
+                                        "enabled":  true,
+                                        "smtp_host_env":  "RADAR_SMTP_HOST",
+                                        "smtp_port_env":  "RADAR_SMTP_PORT",
+                                        "smtp_user_env":  "RADAR_SMTP_USER",
+                                        "smtp_password_env":  "RADAR_SMTP_PASSWORD",
+                                        "from_env":  "RADAR_EMAIL_FROM",
+                                        "to_env":  "RADAR_EMAIL_TO",
+                                        "smtp_port":  465,
+                                        "use_ssl":  true,
+                                        "use_starttls":  false,
+                                        "subject_prefix":  "[电力系统文献雷达]",
+                                        "recipients":  [
+
+                                                       ]
+                                    },
+                          "wechat":  {
+                                         "enabled":  false,
+                                         "type":  "wecom_bot",
+                                         "webhook_url_env":  "RADAR_WECHAT_WEBHOOK_URL",
+                                         "top_n":  8
+                                     },
+                          "webhook":  {
+                                          "enabled":  false,
+                                          "url_env":  "RADAR_WEBHOOK_URL"
+                                      }
+                      },
+    "type_schedules":  {
+                           "journal":  {
+                                           "enabled":  true,
+                                           "frequency":  "daily",
+                                           "time":  "08:30",
+                                           "day_of_week":  "Monday"
+                                       },
+                           "preprint":  {
+                                            "enabled":  false,
+                                            "frequency":  "daily",
+                                            "time":  "08:40",
+                                            "day_of_week":  "Monday"
+                                        },
+                           "conference":  {
+                                              "enabled":  false,
+                                              "frequency":  "daily",
+                                              "time":  "08:50",
+                                              "day_of_week":  "Monday"
+                                          }
+                       }
+}
