@@ -398,6 +398,28 @@ class RadarStateTests(unittest.TestCase):
             200,
         )
 
+    def test_digest_markdown_shows_english_title_when_present(self) -> None:
+        item = {
+            "title": "构网型储能系统研究",
+            "title_en": "Grid-Forming Energy Storage Research",
+            "venue": "电网技术",
+            "year": "2025",
+            "authors": ["张三"],
+            "doi": "",
+            "url": "",
+            "oa_url": "",
+            "journal_filter_hits": ["电网技术"],
+            "hits": ["chinese:构网型"],
+            "score": 6,
+            "publication_type": "journal",
+            "abstract": "摘要",
+            "is_oa": False,
+        }
+        md = radar.render_digest_markdown([item], {"profile": {"name": "test"}})
+
+        self.assertIn("英文题名", md)
+        self.assertIn("Grid-Forming Energy Storage Research", md)
+
 
 if __name__ == "__main__":
     unittest.main()

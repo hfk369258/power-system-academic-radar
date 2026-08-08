@@ -1818,6 +1818,8 @@ def render_digest_markdown(items: list[dict[str, Any]], config: dict[str, Any]) 
                 "",
             ]
         )
+        if item.get("title_en"):
+            lines.extend([f"- 英文题名：{item.get('title_en')}", ""])
         if level in {"oa_full_analysis", "abstract_only"} and analysis:
             analysis_title = "### 3. OA开放版本整体分析" if level == "oa_full_analysis" else "### 3. 基于摘要的中文分析"
             basis_note = "以下分析基于开放版本/摘要与元数据。" if level == "oa_full_analysis" else "以下分析仅基于摘要与元数据，不等同于全文精读。"
