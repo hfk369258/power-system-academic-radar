@@ -36,4 +36,4 @@
 - 修复按键绑定失效问题（按钮无响应）。
 
 ### 安全
-- 全仓库历史脱敏：清除 SMTP 授权码、个人邮箱与 QQ 账号信息，作者邮箱切换为 GitHub noreply 格式；凭据仅存于本机（gitignored）。
+- 所有 API Key / SMTP 授权码 / 收件人仅存于本机文件（gitignored），仓库与发布包均不含任何个人凭据；如需在 release 页面发布 exe 离线包，也会完整排除 `profiles/` 个人数据目录。
