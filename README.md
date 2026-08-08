@@ -79,8 +79,9 @@ powershell -ExecutionPolicy Bypass -File scripts\start_radar_ui.ps1
 
 - 数据来自「国家学术搜索」(search.napstic.cn)，由中信所(ISTIC)运营，期刊方自愿公开题录/摘要/DOI，非付费墙绕过；仅限个人科研低频使用，默认节流 1.5s。
 - 两种源类型（无需 API Key）：
-  - `napstic_search`（默认开启）：按 `keywords.chinese` 关键词组逐词检索全部中文期刊，含网络首发（`online_date`）。该接口只支持相关度排序、无法按日期过滤（实测 `sort`/`order` 参数被忽略），因此不过滤日期窗口：客户端按 `online_date` 降序排列（无日期沉底），**是否重复由已推送状态文件去重**——首次运行会推送当前最相关+最新的一批，之后只累积新上线的文献。默认 `bypass_journal_whitelist: true`（检索词本身已按研究方向约束，全网期刊都算数；需严格白名单时可在 JSON 中改为 false）；
+  - `napstic_search`（默认开启）：按 `keywords.chinese` 关键词组逐词检索全部中文期刊，含网络首发（`online_date`）。该接口只支持相关度排序、无法按日期过滤（实测 `sort`/`order` 参数被忽略），因此不过滤日期窗口：客户端按 `online_date` 降序排列（无日期沉底），**是否重复由已推送状态文件去重**——首次运行会推送当前最相关+最新的一批，之后只累积新上线的文献；
   - `napstic_journals`（默认关闭）：按 `journals` slug 列表逐刊抓最近 `months` 期，覆盖完整但滞后约 0.5~1.5 年；开启前请确认能接受其请求量。
+- 中文文献同样受 `journal_filter` 白名单约束（宁缺毋滥）：`chinese_ei` 内置 21 本电力领域核心/主流期刊，不在名单内的中文期刊不会进入推送（可在控制台/JSON 中增删）。
 - 中文文献同样受 `journal_filter` 白名单约束，模板已内置 `chinese_ei` 11 本刊（可在控制台/JSON 中增删）。
 - 已知坑：中国电力期刊 DOI 注册在 ISTIC 中国DOI系统，**不在 Crossref**（Crossref 拿不到中文刊数据）；英文姊妹刊（CSEE JPES / PCMP / MPCE）为独立英文刊，仅覆盖中文刊约 5~10% 精华，完整跟踪中文论文请用 NAPSTIC。
 - 期刊 slug 表与合规说明见 `skills/power-system-literature-radar/references/napstic/`。
@@ -145,6 +146,12 @@ IEEE Key 必须保密，并受用途与调用频率限制。没有 API Key 时�
 - 其他服务商：按其官方 SMTP 文档填写，也可使用 `587 + STARTTLS`。
 
 优先使用控制台内每个方案的“推送邮箱”列表；列表为空时才使用 `RADAR_EMAIL_TO`。
+
+## 中英配额与分区
+
+- 每次推送按语言独立配额：`profile.daily_target_en`（默认 10）与 `profile.daily_target_zh`（默认 5），宁缺毋滥——某语言不够时少发，不发凑数文献；两份都没有时全部为空则不发送邮件。
+- 附件 dashboard 是一个网页两个界面：顶部「语言分区」可一键切换 英文/中文/全部；digest Markdown 也分「英文文献」「中文文献」两章。
+- 模板默认 `backfill_enabled: false`（不回头补发历史文献凑数）；需要时可在 JSON 中打开。
 
 ## 分类推送与计划任务
 

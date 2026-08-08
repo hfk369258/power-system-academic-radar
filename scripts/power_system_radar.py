@@ -1078,6 +1078,22 @@ def contains_cjk(value: str) -> bool:
     return bool(re.search(r"[\u4e00-\u9fff]", value))
 
 
+def group_by_language(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """按标题是否含中文分成 (英文, 中文) 两组。"""
+    en, zh = [], []
+    for item in items:
+        (zh if contains_cjk(item.get("title")) else en).append(item)
+    return en, zh
+
+
+def apply_language_caps(items: list[dict[str, Any]], target_en: int, target_zh: int) -> list[dict[str, Any]]:
+    """宁缺毋滥：英文/中文各自按相关度排序后封顶（数量不足则少），英文在前中文在后。"""
+    en_items, zh_items = group_by_language(items)
+    en_items.sort(key=lambda i: int(i.get("score", 0)), reverse=True)
+    zh_items.sort(key=lambda i: int(i.get("score", 0)), reverse=True)
+    return en_items[: max(0, target_en)] + zh_items[: max(0, target_zh)]
+
+
 def normalize_venue_key(value: Any) -> str:
     text = normalize_space(value).lower()
     text = text.replace("&", "and")
@@ -1843,7 +1859,16 @@ def render_digest_markdown(items: list[dict[str, Any]], config: dict[str, Any]) 
         "- 说明：仅命中配置白名单期刊；非OA或无摘要记录不做全文级创新点判断。",
         "",
     ]
-    for i, item in enumerate(items, 1):
+    # 中英分区：英文在前、中文在后，各自带计数标题
+    en_group, zh_group = group_by_language(items)
+    section_counts = {False: len(en_group), True: len(zh_group)}
+    last_is_zh: bool | None = None
+    for i, item in enumerate(en_group + zh_group, 1):
+        is_zh = contains_cjk(item.get("title"))
+        if is_zh != last_is_zh:
+            label = "中文文献" if is_zh else "英文文献"
+            lines.extend([f"## {label}（{section_counts[is_zh]} 篇）", ""])
+            last_is_zh = is_zh
         analysis = item.get("interpretation")
         authors = ", ".join(item.get("authors") or [])
         keywords = ", ".join(item.get("keywords") or [])
@@ -2076,6 +2101,11 @@ def render_dashboard_html(items: list[dict[str, Any]], config: dict[str, Any]) -
     score_max = max(scores) if scores else 0
     high = sum(1 for s in scores if s >= 7)
 
+    # Language split for the one-page two-section dashboard
+    en_group, zh_group = group_by_language(items)
+    en_count = len(en_group)
+    zh_count = len(zh_group)
+
     # Keyword mapping for filter chips
     kw_to_papers = build_keyword_paper_map(items)
     sorted_kws = sorted(kw_to_papers.items(), key=lambda x: (-len(x[1]), x[0].lower()))[:25]
@@ -2103,12 +2133,16 @@ main{{max-width:1040px;margin:auto;padding:8px 20px 48px}}.result-line{{font-siz
 <div class="top"><div class="top-inner"><h1>电力系统文献雷达</h1><div class="meta">{generated_at} · {html_escape(title)}</div>
 <div class="summary"><span><b>{len(items)}</b>篇文献</span><span><b>{high}</b>篇高相关</span><span><b>{oa_count}</b>篇开放获取</span><span>最高相关度 <b>{score_max}</b></span></div>
 <div class="search-row"><input id="search" type="search" placeholder="搜索标题、作者、关键词、摘要或研究概括"></div></div></div>
-<div class="nav-wrap"><div class="nav-title">按关键词查看（点击后，同关键词文献会集中显示）</div><div id="filters">
+<div class="nav-wrap"><div class="nav-title">语言分区</div><div id="langfilters">
+<button class="chip active" type="button" data-lang="ALL">全部 {len(items)}</button>
+<button class="chip" type="button" data-lang="en">🌐 英文 {en_count}</button>
+<button class="chip" type="button" data-lang="zh">🇨🇳 中文 {zh_count}</button>
+</div><div class="nav-title" style="margin-top:8px">按关键词查看（点击后，同关键词文献会集中显示）</div><div id="filters">
 <button class="chip active" type="button" data-kw="ALL">全部 {len(items)}</button>
 {"".join(f'<button class="chip" type="button" data-kw="{html_escape(kw)}">{html_escape(kw)} {len(pids)}</button>' for kw, pids in sorted_kws)}
 </div></div><main id="papers"><div id="resultLine" class="result-line"></div><div id="main"></div></main>
 <script>
-const PAPERS={papers_json};let activeKw='ALL';
+const PAPERS={papers_json};let activeKw='ALL';let activeLang='ALL';
 const attr=v=>String(v||'').replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll("'",'&#39;').replaceAll('<','&lt;').replaceAll('>','&gt;');
 function cardHTML(p){{
  const tags=p.kw_terms.slice(0,6).map(k=>`<span class="tag">${{attr(k)}}</span>`).join('');
@@ -2120,13 +2154,15 @@ function cardHTML(p){{
 }}
 function render(){{
  const q=document.getElementById('search').value.trim().toLowerCase();
- const matches=PAPERS.filter(p=>(activeKw==='ALL'||p.kw_terms.includes(activeKw))&&(!q||p.search_blob.includes(q)));
+ const matches=PAPERS.filter(p=>(activeKw==='ALL'||p.kw_terms.includes(activeKw))&&(activeLang==='ALL'||p.lang===activeLang)&&(!q||p.search_blob.includes(q)));
  const groups=new Map();matches.forEach(p=>{{const key=activeKw==='ALL'?p.primary_keyword:activeKw;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(p);}});
- document.getElementById('resultLine').textContent=`当前显示 ${{matches.length}} 篇${{activeKw==='ALL'?'':' · 关键词：'+activeKw}}`;
+ const langLabel=activeLang==='ALL'?'':(activeLang==='zh'?' · 中文文献':' · 英文文献');
+ document.getElementById('resultLine').textContent=`当前显示 ${{matches.length}} 篇${{activeKw==='ALL'?'':' · 关键词：'+activeKw}}${{langLabel}}`;
  document.getElementById('main').innerHTML=matches.length?[...groups].map(([kw,rows])=>`<section class="topic"><div class="topic-head"><h2>${{attr(kw)}}</h2><span>${{rows.length}} 篇</span></div>${{rows.map(cardHTML).join('')}}</section>`).join(''):'<div class="empty">没有符合条件的文献</div>';
 }}
 function setKw(kw,updateHash=true,shouldScroll=updateHash){{activeKw=kw;document.querySelectorAll('.chip').forEach(b=>b.classList.toggle('active',b.dataset.kw===kw));render();if(updateHash)history.replaceState(null,'',kw==='ALL'?location.pathname+location.search:'#kw='+encodeURIComponent(kw));if(shouldScroll)requestAnimationFrame(()=>document.getElementById('papers').scrollIntoView({{behavior:'smooth'}}));}}
 document.getElementById('filters').addEventListener('click',e=>{{const b=e.target.closest('[data-kw]');if(b)setKw(b.dataset.kw);}});
+document.getElementById('langfilters').addEventListener('click',e=>{{const b=e.target.closest('[data-lang]');if(!b)return;activeLang=b.dataset.lang;document.querySelectorAll('#langfilters .chip').forEach(c=>c.classList.toggle('active',c.dataset.lang===activeLang));render();}});
 document.getElementById('search').addEventListener('input',render);
 document.getElementById('main').addEventListener('click',e=>{{if(e.target.dataset.action==='toggle'){{const card=e.target.closest('.card');card.classList.toggle('open');const expanded=card.classList.contains('open');e.target.setAttribute('aria-expanded',String(expanded));e.target.textContent=expanded?'收起详情':'展开完整摘要与分析';}}}});
 const hashKw=location.hash.startsWith('#kw=')?decodeURIComponent(location.hash.slice(4)):'ALL';const validHash=PAPERS.some(p=>p.kw_terms.includes(hashKw));setKw(validHash?hashKw:'ALL',false,validHash);
@@ -2157,6 +2193,7 @@ def _papers_json(items: list[dict[str, Any]]) -> str:
             " ".join(normalize_space(analysis.get(key)) for key in ("problem", "method", "innovation", "application", "value")),
         ]).lower()
         records.append({
+            "lang": "zh" if contains_cjk(title) else "en",
             "title": html_escape(title),
             "authors": html_escape(", ".join(item.get("authors") or [])[:150]),
             "venue": html_escape(item.get("venue") or ""),
@@ -2690,6 +2727,12 @@ def main() -> int:
     lookback = int(profile.get("lookback_days", 14))
     since = dt.date.fromisoformat(args.since) if args.since else utc_today() - dt.timedelta(days=lookback)
     daily_target = max(0, int(profile.get("daily_target_items", 0)))
+    # 中英分配额：宁缺毋滥。default 英文 10、中文 5；旧配置只有 daily_target_items 时全部按英文处理。
+    target_en = max(0, int(profile.get("daily_target_en", daily_target or 10)))
+    target_zh = max(0, int(profile.get("daily_target_zh", 0)))
+    if not profile.get("daily_target_en") and not profile.get("daily_target_zh"):
+        target_en, target_zh = daily_target, 0
+    backfill_enabled = bool(profile.get("backfill_enabled", True))
     candidate_limit = args.max_results or int(profile.get("candidate_results_per_source", profile.get("max_results_per_source", 25)))
     backfill_days = max(lookback, int(profile.get("backfill_lookback_days", lookback)))
     state_path = None if args.no_state else resolve_path(profile.get("state_file"), root)
@@ -2699,7 +2742,8 @@ def main() -> int:
         items = dedupe_and_score(fetched, config, seen)
         if args.document_type:
             items = [item for item in items if document_type_category(item) == args.document_type]
-        if daily_target and len(items) < daily_target and not args.since and backfill_days > lookback:
+        total_target = target_en + target_zh
+        if total_target and len(items) < total_target and not args.since and backfill_enabled and backfill_days > lookback:
             backfill_since = utc_today() - dt.timedelta(days=backfill_days)
             print(
                 f"[info] only {len(items)} unseen records in the {lookback}-day window; "
@@ -2709,10 +2753,14 @@ def main() -> int:
             items = dedupe_and_score(fetched, config, seen)
             if args.document_type:
                 items = [item for item in items if document_type_category(item) == args.document_type]
-        if daily_target:
-            items = items[:daily_target]
+        if total_target:
+            items = apply_language_caps(items, target_en, target_zh)
         md_path, json_path, html_path, dash_path = write_outputs(items, config, root)
-        delivered = maybe_notify(config, md_path, json_path, html_path, dash_path, items)
+        delivered = False
+        if items:
+            delivered = maybe_notify(config, md_path, json_path, html_path, dash_path, items)
+        else:
+            print("[info] no records passed quality/caps; skipping notification", file=sys.stderr)
         if not args.no_state:
             if delivered:
                 state_keys = []

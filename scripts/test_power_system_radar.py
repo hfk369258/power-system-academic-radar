@@ -419,6 +419,51 @@ class RadarStateTests(unittest.TestCase):
         self.assertEqual(sent["model"], "deepseek-v4-flash-free")
         self.assertTrue(sent["ua"].startswith("Mozilla/5.0"))
 
+    def test_language_caps_split_english_and_chinese(self) -> None:
+        items = [
+            {"title": f"English paper {i}", "score": 100 - i, "url": ""} for i in range(12)
+        ] + [
+            {"title": f"中文论文{i}", "score": 50 - i, "url": ""} for i in range(7)
+        ]
+
+        capped = radar.apply_language_caps(items, 10, 5)
+
+        titles = [i["title"] for i in capped]
+        en = [t for t in titles if t.startswith("English")]
+        zh = [t for t in titles if t.startswith("中文")]
+        self.assertEqual(len(en), 10)
+        self.assertEqual(len(zh), 5)
+        self.assertEqual(en[0], "English paper 0")  # 英文按分降序
+        self.assertEqual(zh[0], "中文论文0")  # 中文按分降序
+        self.assertEqual(capped[0]["title"], "English paper 0")  # 英文在前
+
+    def test_language_caps_allow_fewer_when_short(self) -> None:
+        items = [{"title": "中文少文", "score": 9, "url": ""}]
+        capped = radar.apply_language_caps(items, 10, 5)
+        self.assertEqual([i["title"] for i in capped], ["中文少文"])
+
+    def test_digest_markdown_splits_sections_by_language(self) -> None:
+        en_item = {
+            "title": "Optimal dispatch review",
+            "venue": "IEEE Transactions on Power Systems",
+            "year": "2026",
+            "authors": ["A"],
+            "doi": "",
+            "url": "",
+            "oa_url": "",
+            "journal_filter_hits": ["IEEE Transactions on Power Systems"],
+            "hits": ["core:power system"],
+            "score": 9,
+            "publication_type": "journal",
+            "abstract": "abs",
+            "is_oa": False,
+        }
+        zh_item = dict(en_item, title="储能容量优化配置", title_en="", score=8)
+        md = radar.render_digest_markdown([en_item, zh_item], {"profile": {"name": "t"}})
+
+        self.assertIn("英文文献", md)
+        self.assertIn("中文文献", md)
+
     def test_napstic_search_degrades_when_module_missing(self) -> None:
         with mock.patch.object(radar, "cn_napstic", None):
             items = radar.fetch_napstic_search(

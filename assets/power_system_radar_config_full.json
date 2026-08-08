@@ -6,6 +6,9 @@
                     "backfill_lookback_days":  365,
                     "candidate_results_per_source":  200,
                     "daily_target_items":  15,
+                    "daily_target_en":  10,
+                    "daily_target_zh":  5,
+                    "backfill_enabled":  false,
                     "max_results_per_source":  25,
                     "output_dir":  "outputs/power-system-radar-full",
                     "state_file":  "work/power-system-radar/state_full.json",
@@ -136,7 +139,7 @@
                         "max_results":  40,
                         "size":  20,
                         "delay_seconds":  1.5,
-                        "bypass_journal_whitelist":  true
+                        "bypass_journal_whitelist":  false
                     },
                     {
                         "name":  "中文核心期刊目录(NAPSTIC)",
@@ -222,7 +225,17 @@
                                                                  "中国电力",
                                                                  "电力建设",
                                                                  "华北电力大学学报",
-                                                                 "现代电力"
+                                                                 "现代电力",
+                                                                 "电力系统及其自动化学报",
+                                                                 "南方电网技术",
+                                                                 "电测与仪表",
+                                                                 "供用电",
+                                                                 "智慧电力",
+                                                                 "电力工程技术",
+                                                                 "电气应用",
+                                                                 "电机与控制学报",
+                                                                 "电工电能新技术",
+                                                                 "新型电力系统"
                                                              ]
                                           },
                            "excluded_venues":  [
