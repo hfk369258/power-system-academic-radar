@@ -90,7 +90,7 @@ powershell -ExecutionPolicy Bypass -File scripts\start_radar_ui.ps1
 
 用途：中文摘要翻译、逐篇研究概括和当次总体简报。文献检索本身不依赖 DeepSeek。
 
-启用后，系统会把候选文献的题名、摘要、来源和关键词发送给 DeepSeek API。请确认这符合你的数据与隐私要求；不要把未公开稿件或敏感内部材料放入自动处理目录。
+启用后，系统会把候选文献的题名、摘要、来源和关键词发送给 DeepSeek API。请确认这符合你的数据与隐私要求；不要把未公开稿件或敏感内部材料放入自动处理目录。**中文文献（标题含中文）不调用 LLM**——它们本就提供中文摘要，直接用本地规则解读，节省配额；DeepSeek 只负责英文文献的中译与逐篇研究概括。
 
 1. 登录 [DeepSeek 开放平台](https://platform.deepseek.com/)；
 2. 在平台创建 API Key 并确保账户有可用额度；

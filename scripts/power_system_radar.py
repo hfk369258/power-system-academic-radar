@@ -1523,6 +1523,9 @@ def enrich_interpretations(items: list[dict[str, Any]], config: dict[str, Any]) 
     configured_llm_max = int(llm_config.get("max_items", 0))
     max_llm = len(analysis_items) if configured_llm_max <= 0 else min(configured_llm_max, len(analysis_items))
     for item in analysis_items[:max_llm]:
+        if contains_cjk(item.get("title")):
+            # 中文文献本就提供中文摘要与规则解读，无需 LLM 翻译；跳过以节省配额
+            continue
         fallback = item.get("interpretation") or interpret_item(item, config)
         try:
             deepseek_result = interpret_item_with_deepseek_retry(item, llm_config, fallback, api_key)

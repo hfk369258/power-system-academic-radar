@@ -464,6 +464,29 @@ class RadarStateTests(unittest.TestCase):
         self.assertIn("英文文献", md)
         self.assertIn("中文文献", md)
 
+    def test_llm_skips_native_chinese_items(self) -> None:
+        zh_item = {"title": "储能容量优化配置", "abstract": "中文摘要本身无需翻译。", "url": ""}
+        en_item = {"title": "Optimal dispatch review", "abstract": "English abstract.", "url": ""}
+        config = {
+            "llm_interpretation": {"enabled": True, "max_items": 0, "attempts": 1, "retry_delay_seconds": 0},
+            "output_policy": {"full_analysis_requires_oa": True},
+        }
+        called: list[dict] = []
+
+        def fake_retry(item, llm_config, fallback, api_key):
+            called.append(item["title"])
+            return {"abstract_zh": "译文", "problem": "问题"}
+
+        with mock.patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}), mock.patch.object(
+            radar, "interpret_item", return_value={"problem": "规则"}
+        ), mock.patch.object(radar, "interpret_item_with_deepseek_retry", side_effect=fake_retry):
+            radar.enrich_interpretations([zh_item, en_item], config)
+
+        self.assertEqual(called, ["Optimal dispatch review"])  # 只解读英文
+        self.assertEqual(zh_item["interpretation_mode"], "rule")
+        self.assertEqual(zh_item["abstract_zh"], "中文摘要本身无需翻译。")
+        self.assertEqual(en_item["interpretation_mode"], "deepseek")
+
     def test_napstic_search_degrades_when_module_missing(self) -> None:
         with mock.patch.object(radar, "cn_napstic", None):
             items = radar.fetch_napstic_search(
