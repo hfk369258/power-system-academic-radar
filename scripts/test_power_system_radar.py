@@ -304,6 +304,39 @@ class RadarStateTests(unittest.TestCase):
         )
         self.assertEqual(override, "构网型 AND 储能")
 
+    def test_napstic_search_maps_records_and_filters_by_online_date(self) -> None:
+        fresh = {
+            "source": "napstic-search",
+            "source_id": "0120250800425188",
+            "title_cn": "构网型变流器控制",
+            "abstract_cn": "新摘要",
+            "journal_cn": "电网技术",
+            "year": "2025",
+            "online_date": "2026-08-01 10:00:00",
+            "doi": "10.13335/x.1",
+            "detail_url": "https://search.napstic.cn/literature/periodical/010x202501001",
+        }
+        stale = dict(fresh, title_cn="旧论文", source_id="stale1", online_date="2026-05-01 10:00:00")
+        config = {"keywords": {"chinese": ["构网型"]}, "queries": {"auto_from_keywords": True}}
+        source = {"name": "中文检索(NAPSTIC)", "type": "napstic_search", "size": 20, "pages": 2, "delay_seconds": 0}
+
+        with mock.patch.object(
+            radar.cn_napstic, "search_literature", side_effect=[([fresh, stale], 88), ([], 0)]
+        ) as call_mock:
+            items = radar.fetch_napstic_search(config, source, dt.date(2026, 7, 1), 40)
+
+        self.assertEqual(call_mock.call_count, 2)
+        self.assertEqual(call_mock.call_args.args[0], "构网型")
+        self.assertEqual([item["title"] for item in items], ["构网型变流器控制"])
+        self.assertEqual(items[0]["source"], "中文检索(NAPSTIC)")
+
+    def test_napstic_search_degrades_when_module_missing(self) -> None:
+        with mock.patch.object(radar, "cn_napstic", None):
+            items = radar.fetch_napstic_search(
+                {"keywords": {}}, {"name": "x", "type": "napstic_search"}, dt.date(2026, 7, 1), 40
+            )
+        self.assertEqual(items, [])
+
 
 if __name__ == "__main__":
     unittest.main()

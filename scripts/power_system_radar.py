@@ -31,6 +31,14 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 
+# cn_napstic 是本仓库自带模块（scripts/cn_napstic.py）；缺失时对应源只告警跳过，不影响其他源。
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    import cn_napstic  # noqa: E402
+except ImportError:  # pragma: no cover
+    cn_napstic = None
+
+
 USER_AGENT = "power-system-academic-radar/0.1 (+local Codex plugin)"
 LAST_SEMANTIC_SCHOLAR_REQUEST = 0.0
 
@@ -718,6 +726,37 @@ def fetch_rss(config: dict[str, Any], source: dict[str, Any], since: dt.date, li
                 items.append(item)
             if len(items) >= limit:
                 break
+    return items[:limit]
+
+
+def fetch_napstic_search(config: dict[str, Any], source: dict[str, Any], since: dt.date, limit: int) -> list[dict[str, Any]]:
+    """按中文关键词检索 NAPSTIC（含网络首发），按 online_date 增量过滤。"""
+    if cn_napstic is None:
+        print(f"[warn] {source['name']} skipped: cn_napstic module not found", file=sys.stderr)
+        return []
+    query = source_query(config, source)
+    if not query:
+        print(f"[warn] {source['name']} skipped: empty query", file=sys.stderr)
+        return []
+    size = max(1, int(source.get("size", 20)))
+    pages = max(1, int(source.get("pages", 0)) or -(-limit // size))
+    delay = float(source.get("delay_seconds", 1.5))
+    since_str = since.strftime("%Y-%m-%d") if since else ""
+    records: list[dict[str, Any]] = []
+    total = 0
+    try:
+        for page in range(1, pages + 1):
+            page_records, total = cn_napstic.search_literature(query, size=size, page=page, delay=delay)
+            records.extend(page_records)
+            time.sleep(delay * 0.5)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[warn] {source['name']} failed mid-search: {exc}", file=sys.stderr)
+    items = []
+    for rec in records:
+        if since_str and rec.get("online_date") and rec["online_date"][:10] < since_str:
+            continue
+        items.append(clean_item(napstic_to_item(rec, source)))
+    print(f"[info] {source['name']} '{query}': platform hit {total}, fetched {len(items)}", file=sys.stderr)
     return items[:limit]
 
 
