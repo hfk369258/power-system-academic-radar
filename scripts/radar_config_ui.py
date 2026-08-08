@@ -796,7 +796,7 @@ class ConfigStore:
                 "-Frequency", frequency.title(), "-DayOfWeek", day,
                 "-DocumentType", document_type,
                 "-PluginRoot", str(PLUGIN_ROOT), "-ConfigPath", str(config_path),
-                "-PythonExe", sys.executable, "-EnvFile", str(env_path), "-Force",
+                "-PythonExe", os.environ.get("RADAR_PYTHON_EXE", sys.executable), "-EnvFile", str(env_path), "-Force",
             ]
             enabled = bool(row.get("enabled", document_type == "journal"))
             if not enabled:
