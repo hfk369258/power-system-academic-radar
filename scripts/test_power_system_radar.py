@@ -369,6 +369,35 @@ class RadarStateTests(unittest.TestCase):
         self.assertEqual(items[0]["venue"], "中国电机工程学报")
         self.assertEqual(items[0]["source"], "中文核心期刊目录(NAPSTIC)")
 
+    def test_napstic_bypasses_min_score_like_manual_exports(self) -> None:
+        config = {"scoring": {"min_score": 5}, "journal_filter": {"enabled": False}}
+        item = {"title": "低相关度中文论文", "source": "中文检索(NAPSTIC)", "hits": ["chinese:储能"]}
+
+        result = radar.dedupe_and_score([item], config, set())
+
+        self.assertEqual(len(result), 1)
+
+    def test_fetch_enabled_sources_dispatches_napstic_types(self) -> None:
+        config = {
+            "sources": [
+                {"name": "中文检索(NAPSTIC)", "type": "napstic_search", "enabled": True},
+                {"name": "中文核心期刊目录(NAPSTIC)", "type": "napstic_journals", "enabled": True},
+            ]
+        }
+
+        with mock.patch.object(radar, "fetch_napstic_search", return_value=[{"title": "a"}]), mock.patch.object(
+            radar, "fetch_napstic_journals", return_value=[{"title": "b"}]
+        ), mock.patch.object(radar, "load_manual_exports", return_value=[]):
+            result = radar.fetch_enabled_sources(config, radar.utc_today(), Path.cwd(), 20)
+
+        self.assertEqual(sorted(item["title"] for item in result), ["a", "b"])
+
+    def test_napstic_search_candidate_limit_is_capped(self) -> None:
+        self.assertEqual(
+            radar.source_fetch_limit({"profile": {"max_results_per_source": 25}}, {"type": "napstic_search"}, 500),
+            200,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

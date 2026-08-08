@@ -1346,7 +1346,8 @@ def dedupe_and_score(items: list[dict[str, Any]], config: dict[str, Any], seen: 
         item["key"] = stable_key
         item["dedupe_key"] = key
         item["seen_before"] = key in seen or stable_key in seen
-        if score < min_score and not str(item.get("source", "")).startswith("manual"):
+        src = str(item.get("source", ""))
+        if score < min_score and not (src.startswith(("manual", "napstic")) or "napstic" in src.lower()):
             continue
         if key not in by_key or score > int(by_key[key].get("score", 0)):
             by_key[key] = item
@@ -2368,6 +2369,7 @@ def source_fetch_limit(config: dict[str, Any], source: dict[str, Any], max_overr
         "semantic_scholar": 100,
         "ieee_xplore_api": 200,
         "elsevier_scopus_api": 25,
+        "napstic_search": 200,
     }
     cap = caps.get(str(source.get("type")))
     return max(1, min(requested, cap)) if cap else max(1, requested)
@@ -2395,6 +2397,10 @@ def fetch_enabled_sources(config: dict[str, Any], since: dt.date, root: Path, ma
                 items.extend(fetch_elsevier_scopus(config, source, since, limit))
             elif source_type == "rss":
                 items.extend(fetch_rss(config, source, since, limit))
+            elif source_type == "napstic_search":
+                items.extend(fetch_napstic_search(config, source, since, limit))
+            elif source_type == "napstic_journals":
+                items.extend(fetch_napstic_journals(config, source, since, limit))
             else:
                 print(f"[warn] unknown source type skipped: {source_type}", file=sys.stderr)
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ET.ParseError, http.client.IncompleteRead) as exc:
