@@ -120,7 +120,7 @@ NAPSTIC 记录 → `clean_item()` 映射：
 
 - 中文条目进入“期刊论文”推送计划，走现有 digest_*.md / digest_*.html / dashboard_*.html / records_*.json 全链路。
 - `render_digest_markdown` 在标题下新增一行可选英文标题（若有），保持阅读层中文优先。
-- DeepSeek 解读（中文输出）：端点支持 `DEEPSEEK_BASE_URL` 环境变量覆盖为任意 OpenAI 兼容网关（脚本为 LLM 请求附加浏览器 UA，兼容部分网关的 UA 校验），默认仍为配置中的 DeepSeek 官方地址。
+- DeepSeek 解读（中文输出）：端点支持 `DEEPSEEK_BASE_URL` 环境变量覆盖为任意 OpenAI 兼容网关、`DEEPSEEK_MODEL` 覆盖模型名（脚本为 LLM 请求附加浏览器 UA，兼容部分网关的 UA 校验），默认仍为配置中的 DeepSeek 官方地址与模型。
 
 ## UI 与文档
 

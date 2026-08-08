@@ -96,7 +96,7 @@ powershell -ExecutionPolicy Bypass -File scripts\start_radar_ui.ps1
 3. 在控制台“本机接口与账号”中填写 `DEEPSEEK_API_KEY`；
 4. 当前正式模型为 `deepseek-v4-flash`。DeepSeek 官方文档把 `https://api.deepseek.com` 称为 OpenAI 兼容 `base_url`；本项目的配置字段会被脚本直接作为 Chat Completions 请求地址使用，因此保留完整的 `https://api.deepseek.com/chat/completions`，不要只改成根地址。
 
-也可以改用任何 OpenAI 兼容网关：在 `radar.env.ps1` 里设置 `$env:DEEPSEEK_BASE_URL = "https://网关地址/v1/chat/completions"` 即可覆盖配置中的端点（脚本会为 LLM 请求附加浏览器 User-Agent，便于通过部分网关的 UA 校验）。
+也可以改用任何 OpenAI 兼容网关：在 `radar.env.ps1` 里设置 `$env:DEEPSEEK_BASE_URL = "https://网关地址/v1/chat/completions"` 覆盖端点、`$env:DEEPSEEK_MODEL = "模型名"` 覆盖模型（脚本会为 LLM 请求附加浏览器 User-Agent，便于通过部分网关的 UA 校验）。例如 opencodezen 免费档：`https://opencode.ai/zen/v1/chat/completions` + `deepseek-v4-flash-free`。
 
 官方调用说明见 [DeepSeek API Docs](https://api-docs.deepseek.com/zh-cn/guides/function_calling/)。模型名称和计费可能变化，维护时应以官方文档为准。
 

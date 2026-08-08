@@ -403,14 +403,20 @@ class RadarStateTests(unittest.TestCase):
         def fake_post(url, payload, headers, timeout=60):
             sent["url"] = url
             sent["ua"] = headers.get("User-Agent", "")
+            sent["model"] = payload.get("model")
             return {"choices": [{"message": {"content": '{"abstract_zh": "译文", "problem": "问题"}'}}]}
 
-        with mock.patch.dict("os.environ", {"DEEPSEEK_BASE_URL": "https://opencode.ai/zen/go/v1/chat/completions"}), mock.patch.object(
-            radar, "http_post_json", side_effect=fake_post
-        ):
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "DEEPSEEK_BASE_URL": "https://opencode.ai/zen/v1/chat/completions",
+                "DEEPSEEK_MODEL": "deepseek-v4-flash-free",
+            },
+        ), mock.patch.object(radar, "http_post_json", side_effect=fake_post):
             radar.interpret_item_with_deepseek({"title": "t"}, llm_config, {}, "test-key")
 
-        self.assertEqual(sent["url"], "https://opencode.ai/zen/go/v1/chat/completions")
+        self.assertEqual(sent["url"], "https://opencode.ai/zen/v1/chat/completions")
+        self.assertEqual(sent["model"], "deepseek-v4-flash-free")
         self.assertTrue(sent["ua"].startswith("Mozilla/5.0"))
 
     def test_napstic_search_degrades_when_module_missing(self) -> None:

@@ -1561,13 +1561,19 @@ def llm_headers(api_key: str) -> dict[str, str]:
     }
 
 
+def llm_model(llm_config: dict[str, Any]) -> str:
+    """LLM 模型名：优先 DEEPSEEK_MODEL 环境变量（如免费档 deepseek-v4-flash-free），否则用配置值。"""
+    default = str(llm_config.get("model", "deepseek-v4-flash"))
+    return env_value(llm_config.get("model_env", "DEEPSEEK_MODEL"), default)
+
+
 def interpret_item_with_deepseek(
     item: dict[str, Any],
     llm_config: dict[str, Any],
     fallback: dict[str, str],
     api_key: str,
 ) -> dict[str, str]:
-    model = llm_config.get("model", "deepseek-v4-flash")
+    model = llm_model(llm_config)
     timeout = int(llm_config.get("timeout_seconds", 60))
     payload = {
         "model": model,
@@ -1672,7 +1678,7 @@ def build_daily_brief(items: list[dict[str, Any]], config: dict[str, Any]) -> di
             "value": analysis.get("value"),
         })
     payload = {
-        "model": llm_config.get("model", "deepseek-v4-flash"),
+        "model": llm_model(llm_config),
         "temperature": float(llm_config.get("temperature", 0.2)),
         "max_tokens": min(int(llm_config.get("max_tokens", 1200)), 1200),
         "messages": [
