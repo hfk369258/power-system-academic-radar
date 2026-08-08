@@ -47,6 +47,8 @@ MAX_PROFILES = 20
 PROFILE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
 CREDENTIAL_FIELDS = (
     "DEEPSEEK_API_KEY",
+    "DEEPSEEK_BASE_URL",
+    "DEEPSEEK_MODEL",
     "SEMANTIC_SCHOLAR_API_KEY",
     "IEEE_XPLORE_API_KEY",
     "ELSEVIER_API_KEY",
@@ -295,11 +297,12 @@ def editable_view(
             }
             for document_type in DOCUMENT_TYPES
         },
-        "llm": {
+                "llm": {
             "enabled": bool(llm.get("enabled", True)),
             "provider": str(llm.get("provider", "deepseek")),
-            "model": str(llm.get("model", "deepseek-v4-flash")),
-            "base_url": str(llm.get("base_url", "https://api.deepseek.com/chat/completions")),
+            # 显示运行时实际生效值：进程环境变量优先（如 opencodezen 的 free 档网关）；方案凭据覆盖在 ConfigStore.get 中补齐
+            "model": os.environ.get("DEEPSEEK_MODEL", str(llm.get("model", "deepseek-v4-flash"))),
+            "base_url": os.environ.get("DEEPSEEK_BASE_URL", str(llm.get("base_url", "https://api.deepseek.com/chat/completions"))),
         },
         "email": {
             "enabled": bool(email.get("enabled", True)),
@@ -701,7 +704,13 @@ class ConfigStore:
         with self._lock:
             view = editable_view(_read_json(self._path(profile)), profile, self.profile_meta.get(profile))
             env_text = _read_env_text(self.env_files.get(profile))
-            view["credentials"] = parse_env_values(env_text)
+            credentials = parse_env_values(env_text)
+            # 运行时实际生效的 LLM 端点/模型来自方案凭据文件（如 opencodezen 网关），与界面显示保持一致
+            if credentials.get("DEEPSEEK_BASE_URL"):
+                view["llm"]["base_url"] = credentials["DEEPSEEK_BASE_URL"]
+            if credentials.get("DEEPSEEK_MODEL"):
+                view["llm"]["model"] = credentials["DEEPSEEK_MODEL"]
+            view["credentials"] = credentials
             view["credentials_revision"] = _text_revision(env_text)
             return view
 

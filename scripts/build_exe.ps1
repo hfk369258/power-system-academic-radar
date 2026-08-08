@@ -9,6 +9,15 @@ Write-Host "==> Installing build dependencies (PyInstaller + pywebview; first ti
 python -m pip install --upgrade pyinstaller pywebview
 if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 
+# Preserve user profile data (profiles/) across rebuilds; PyInstaller --clean wipes dist.
+$ExistingProfiles = Join-Path $Root "dist\power-system-radar-ui\profiles"
+$ProfileBackup = Join-Path $env:TEMP "radar-ui-profiles-backup"
+if (Test-Path -LiteralPath $ExistingProfiles) {
+    if (Test-Path -LiteralPath $ProfileBackup) { Remove-Item -Recurse -Force $ProfileBackup }
+    Copy-Item -Recurse -Force $ExistingProfiles $ProfileBackup
+    Write-Host "Existing profiles/ backed up for restore."
+}
+
 Write-Host "==> PyInstaller onedir build..."
 python -m PyInstaller --noconfirm --clean --onedir --name power-system-radar-ui `
     --hidden-import webview.platforms.edgechromium `
@@ -21,6 +30,13 @@ Copy-Item -Recurse -Force (Join-Path $Root "scripts") (Join-Path $Target "script
 Copy-Item -Recurse -Force (Join-Path $Root "assets") (Join-Path $Target "assets")
 Copy-Item -Force (Join-Path $Root "radar.env.example.ps1") (Join-Path $Target "radar.env.example.ps1")
 Copy-Item -Force (Join-Path $Root ".gitignore") (Join-Path $Target ".gitignore")
+
+if (Test-Path -LiteralPath $ProfileBackup) {
+    New-Item -ItemType Directory -Force -Path (Join-Path $Target "profiles") | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $ProfileBackup "*") (Join-Path $Target "profiles")
+    Remove-Item -Recurse -Force $ProfileBackup
+    Write-Host "profiles/ restored."
+}
 
 Write-Host ""
 Write-Host "Build complete: $Target\power-system-radar-ui.exe"

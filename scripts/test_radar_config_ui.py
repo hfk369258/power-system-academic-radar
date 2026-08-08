@@ -102,6 +102,19 @@ class RadarConfigUITests(unittest.TestCase):
         restored = self.store.restore("basic")
         self.assertEqual(restored["profile"]["daily_target_items"], 12)
 
+    def test_llm_display_reflects_credential_overrides(self):
+        view = self.store.get("basic")
+        self.assertNotEqual(view["llm"]["base_url"], "https://opencode.ai/zen/v1/chat/completions")
+        values = view["credentials"]
+        values["DEEPSEEK_BASE_URL"] = "https://opencode.ai/zen/v1/chat/completions"
+        values["DEEPSEEK_MODEL"] = "deepseek-v4-flash-free"
+        self.store.save_credentials(
+            "basic", {"revision": view["credentials_revision"], "values": values}
+        )
+        refreshed = self.store.get("basic")
+        self.assertEqual(refreshed["llm"]["base_url"], "https://opencode.ai/zen/v1/chat/completions")
+        self.assertEqual(refreshed["llm"]["model"], "deepseek-v4-flash-free")
+
     def test_unknown_profile_is_rejected(self):
         with self.assertRaisesRegex(ui.ConfigError, "方案编号无效"):
             self.store.get("../../secret")
