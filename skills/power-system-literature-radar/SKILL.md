@@ -45,6 +45,10 @@ Set `DEEPSEEK_API_KEY` in `radar.env.ps1` to enable `llm_interpretation`. DeepSe
 
 The default config sends only the top 5 papers to DeepSeek each run to control cost. If the DeepSeek call fails, the radar falls back to the local rule-based interpretation and still writes/sends the digest.
 
+## Chinese Literature Sources (NAPSTIC)
+
+The radar ships two CN-literature data sources that need no API key: `napstic_search` (keyword search over all Chinese journals, including network-first `online_date` increments) and `napstic_journals` (per-journal recent-issue crawl of 11 core journals). The fetcher lives in `scripts/cn_napstic.py` and throttles at >=1.2s per request by default. Chinese records share the same filtering, deduplication, and email pipeline as English sources and are constrained by the `journal_filter.chinese_ei` whitelist. Details, slug tables, and the compliance boundary are in `references/napstic/`.
+
 ## Journal and OA Filtering
 
 Use `journal_filter` in `assets/power_system_radar_config.json` to restrict results to the configured IEEE Transactions, high-level Elsevier/SCI journals, and selected Chinese EI journals. Impact factor and JCR/CAS quartile data change by year and are not reliably exposed by OpenAlex/Crossref/Semantic Scholar, so the radar treats the configured list as the source of truth.

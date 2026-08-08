@@ -75,6 +75,16 @@ powershell -ExecutionPolicy Bypass -File scripts\start_radar_ui.ps1
 
 这些公共服务仍可能限流。请降低单源候选量、错开多个方案的时间，并遵守各服务条款。
 
+### NAPSTIC 中文文献源（CNKI 系核心期刊）
+
+- 数据来自「国家学术搜索」(search.napstic.cn)，由中信所(ISTIC)运营，期刊方自愿公开题录/摘要/DOI，非付费墙绕过；仅限个人科研低频使用，默认节流 1.5s。
+- 两种源类型（无需 API Key）：
+  - `napstic_search`（默认开启）：按 `keywords.chinese` 关键词组检索全部中文期刊，含网络首发（`online_date`）增量，数据最新；
+  - `napstic_journals`（默认关闭）：按 `journals` slug 列表逐刊抓最近 `months` 期，覆盖完整但滞后约 0.5~1.5 年；开启前请确认能接受其请求量。
+- 中文文献同样受 `journal_filter` 白名单约束，模板已内置 `chinese_ei` 11 本刊（可在控制台/JSON 中增删）。
+- 已知坑：中国电力期刊 DOI 注册在 ISTIC 中国DOI系统，**不在 Crossref**（Crossref 拿不到中文刊数据）；英文姊妹刊（CSEE JPES / PCMP / MPCE）为独立英文刊，仅覆盖中文刊约 5~10% 精华，完整跟踪中文论文请用 NAPSTIC。
+- 期刊 slug 表与合规说明见 `skills/power-system-literature-radar/references/napstic/`。
+
 ### DeepSeek
 
 用途：中文摘要翻译、逐篇研究概括和当次总体简报。文献检索本身不依赖 DeepSeek。
