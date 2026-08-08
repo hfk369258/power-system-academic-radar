@@ -79,7 +79,7 @@ powershell -ExecutionPolicy Bypass -File scripts\start_radar_ui.ps1
 
 - 数据来自「国家学术搜索」(search.napstic.cn)，由中信所(ISTIC)运营，期刊方自愿公开题录/摘要/DOI，非付费墙绕过；仅限个人科研低频使用，默认节流 1.5s。
 - 两种源类型（无需 API Key）：
-  - `napstic_search`（默认开启）：按 `keywords.chinese` 关键词组逐词检索全部中文期刊，含网络首发（`online_date`）增量，数据最新。该通道默认 `bypass_journal_whitelist: true`（检索词本身已按研究方向约束，全网期刊都算数；需严格白名单时可在 JSON 中改为 false）；
+  - `napstic_search`（默认开启）：按 `keywords.chinese` 关键词组逐词检索全部中文期刊，含网络首发（`online_date`）。该接口只支持相关度排序、无法按日期过滤（实测 `sort`/`order` 参数被忽略），因此不过滤日期窗口：客户端按 `online_date` 降序排列（无日期沉底），**是否重复由已推送状态文件去重**——首次运行会推送当前最相关+最新的一批，之后只累积新上线的文献。默认 `bypass_journal_whitelist: true`（检索词本身已按研究方向约束，全网期刊都算数；需严格白名单时可在 JSON 中改为 false）；
   - `napstic_journals`（默认关闭）：按 `journals` slug 列表逐刊抓最近 `months` 期，覆盖完整但滞后约 0.5~1.5 年；开启前请确认能接受其请求量。
 - 中文文献同样受 `journal_filter` 白名单约束，模板已内置 `chinese_ei` 11 本刊（可在控制台/JSON 中增删）。
 - 已知坑：中国电力期刊 DOI 注册在 ISTIC 中国DOI系统，**不在 Crossref**（Crossref 拿不到中文刊数据）；英文姊妹刊（CSEE JPES / PCMP / MPCE）为独立英文刊，仅覆盖中文刊约 5~10% 精华，完整跟踪中文论文请用 NAPSTIC。
@@ -95,6 +95,8 @@ powershell -ExecutionPolicy Bypass -File scripts\start_radar_ui.ps1
 2. 在平台创建 API Key 并确保账户有可用额度；
 3. 在控制台“本机接口与账号”中填写 `DEEPSEEK_API_KEY`；
 4. 当前正式模型为 `deepseek-v4-flash`。DeepSeek 官方文档把 `https://api.deepseek.com` 称为 OpenAI 兼容 `base_url`；本项目的配置字段会被脚本直接作为 Chat Completions 请求地址使用，因此保留完整的 `https://api.deepseek.com/chat/completions`，不要只改成根地址。
+
+也可以改用任何 OpenAI 兼容网关：在 `radar.env.ps1` 里设置 `$env:DEEPSEEK_BASE_URL = "https://网关地址/v1/chat/completions"` 即可覆盖配置中的端点（脚本会为 LLM 请求附加浏览器 User-Agent，便于通过部分网关的 UA 校验）。
 
 官方调用说明见 [DeepSeek API Docs](https://api-docs.deepseek.com/zh-cn/guides/function_calling/)。模型名称和计费可能变化，维护时应以官方文档为准。
 

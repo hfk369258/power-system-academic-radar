@@ -316,7 +316,7 @@ class RadarStateTests(unittest.TestCase):
             "doi": "10.13335/x.1",
             "detail_url": "https://search.napstic.cn/literature/periodical/010x202501001",
         }
-        stale = dict(fresh, title_cn="旧论文", source_id="stale1", online_date="2026-05-01 10:00:00")
+        stale = dict(fresh, title_cn="旧论文", source_id="stale1", doi="10.13335/x.2", online_date="2026-05-01 10:00:00")
         config = {"keywords": {"chinese": ["构网型"]}, "queries": {"auto_from_keywords": True}}
         source = {"name": "中文检索(NAPSTIC)", "type": "napstic_search", "size": 20, "delay_seconds": 0}
 
@@ -327,8 +327,21 @@ class RadarStateTests(unittest.TestCase):
 
         self.assertEqual(call_mock.call_count, 1)
         self.assertEqual(call_mock.call_args.args[0], "构网型")
-        self.assertEqual([item["title"] for item in items], ["构网型变流器控制"])
+        # 接口只有相关度排序、无法按日期过滤：全部保留，客户端按 online_date 降序（无日期沉底）
+        self.assertEqual([item["title"] for item in items], ["构网型变流器控制", "旧论文"])
         self.assertEqual(items[0]["source"], "中文检索(NAPSTIC)")
+
+    def test_napstic_search_orders_by_online_date_desc_with_missing_last(self) -> None:
+        old = {"source_id": "a1", "title_cn": "无日期旧文一", "journal_cn": "电网技术", "year": "2024"}
+        mid = dict(old, source_id="a2", title_cn="2025年中刊文", online_date="2025-06-01 00:00:00")
+        latest = dict(old, source_id="a3", title_cn="2026年首发文", online_date="2026-03-01 00:00:00")
+        config = {"keywords": {"chinese": ["储能"]}, "queries": {"auto_from_keywords": True}}
+        source = {"name": "中文检索(NAPSTIC)", "type": "napstic_search", "size": 20, "delay_seconds": 0}
+
+        with mock.patch.object(radar.cn_napstic, "search_literature", return_value=([old, latest, mid], 99)):
+            items = radar.fetch_napstic_search(config, source, dt.date(2026, 6, 1), 40)
+
+        self.assertEqual([item["title"] for item in items], ["2026年首发文", "2025年中刊文", "无日期旧文一"])
 
     def test_napstic_search_dedupes_records_across_terms(self) -> None:
         shared = {
@@ -372,6 +385,33 @@ class RadarStateTests(unittest.TestCase):
         self.assertFalse(radar.journal_filter_match(outside, config)[0])
         bypassed = dict(outside, bypass_journal_whitelist=True)
         self.assertTrue(radar.journal_filter_match(bypassed, config)[0])
+
+    def test_llm_endpoint_prefers_env_override(self) -> None:
+        llm_config = {"base_url": "https://api.deepseek.com/chat/completions"}
+        self.assertEqual(
+            radar.llm_endpoint(llm_config), "https://api.deepseek.com/chat/completions"
+        )
+        with mock.patch.dict("os.environ", {"DEEPSEEK_BASE_URL": "https://opencode.ai/zen/go/v1/chat/completions"}):
+            self.assertEqual(
+                radar.llm_endpoint(llm_config), "https://opencode.ai/zen/go/v1/chat/completions"
+            )
+
+    def test_interpret_item_with_deepseek_uses_env_endpoint_and_browser_ua(self) -> None:
+        llm_config = {"base_url": "https://api.deepseek.com/chat/completions", "timeout_seconds": 5}
+        sent = {}
+
+        def fake_post(url, payload, headers, timeout=60):
+            sent["url"] = url
+            sent["ua"] = headers.get("User-Agent", "")
+            return {"choices": [{"message": {"content": '{"abstract_zh": "译文", "problem": "问题"}'}}]}
+
+        with mock.patch.dict("os.environ", {"DEEPSEEK_BASE_URL": "https://opencode.ai/zen/go/v1/chat/completions"}), mock.patch.object(
+            radar, "http_post_json", side_effect=fake_post
+        ):
+            radar.interpret_item_with_deepseek({"title": "t"}, llm_config, {}, "test-key")
+
+        self.assertEqual(sent["url"], "https://opencode.ai/zen/go/v1/chat/completions")
+        self.assertTrue(sent["ua"].startswith("Mozilla/5.0"))
 
     def test_napstic_search_degrades_when_module_missing(self) -> None:
         with mock.patch.object(radar, "cn_napstic", None):

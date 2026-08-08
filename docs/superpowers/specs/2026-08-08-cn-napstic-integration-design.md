@@ -76,10 +76,10 @@ NAPSTIC 记录 → `clean_item()` 映射：
 
 ### `fetch_napstic_search`
 
-- 检索词：`source_query(config, source)` → `build_default_query` 的 `cnki`/`manual_chinese` 分支（`chinese` 关键词组 OR 组合），并允许 `query_override` 覆盖。`build_default_query` 需把 `napstic_search` 加入中文类型集合。
-- 翻页：`pages = max(1, ceil(limit / size))`，size 取 `source.size`（默认 20）。
-- 增量过滤：`online_date >= since`（字符串比较 `%Y-%m-%d`）；无 `online_date` 的条目保留（由去重兜底）。
-- 节流：`delay_seconds`（默认 1.5s），尊重公共服务的低频要求。
+- 检索词：`napstic_query_terms()`——`auto_from_keywords` 时把 `chinese` 组每个关键词拆成独立查询（**实测修正**：opaj 接口把空格分词按 AND 处理、忽略 OR/AND token，OR 拼合的复合查询恒为 0 命中）；`query_override` 时原样单发。
+- 请求量：每词一页 `size` 条（默认 20），`delay_seconds` 节流（默认 1.5s）。
+- **窗口语义（实测修正）**：接口只支持相关度排序、`sort`/`order` 参数全部被忽略、无法按日期过滤 → **不做 since 硬过滤**。客户端按 `online_date` 降序排序（无日期沉底），截取 `limit` 条；重复由状态文件去重。首次运行推送当前最相关+最新的一批，此后仅累积新上线文献。
+- 词间/DOI 去重：同一次抓取内按 `doi`（否则 `source_id`）去重。
 
 ### `fetch_napstic_journals`
 
@@ -120,7 +120,7 @@ NAPSTIC 记录 → `clean_item()` 映射：
 
 - 中文条目进入“期刊论文”推送计划，走现有 digest_*.md / digest_*.html / dashboard_*.html / records_*.json 全链路。
 - `render_digest_markdown` 在标题下新增一行可选英文标题（若有），保持阅读层中文优先。
-- DeepSeek 解读（中文输出）无需改动。
+- DeepSeek 解读（中文输出）：端点支持 `DEEPSEEK_BASE_URL` 环境变量覆盖为任意 OpenAI 兼容网关（脚本为 LLM 请求附加浏览器 UA，兼容部分网关的 UA 校验），默认仍为配置中的 DeepSeek 官方地址。
 
 ## UI 与文档
 

@@ -125,7 +125,7 @@ def http_post_json(url: str, payload: dict[str, Any], headers: dict[str, str], t
     req = urllib.request.Request(
         url,
         data=body,
-        headers={**headers, "Content-Type": "application/json", "User-Agent": USER_AGENT},
+        headers={"Content-Type": "application/json", **headers, "User-Agent": headers.get("User-Agent") or USER_AGENT},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -748,7 +748,11 @@ def napstic_query_terms(config: dict[str, Any], source: dict[str, Any]) -> list[
 
 
 def fetch_napstic_search(config: dict[str, Any], source: dict[str, Any], since: dt.date, limit: int) -> list[dict[str, Any]]:
-    """按 chinese 关键词组逐词检索 NAPSTIC（含网络首发），按 online_date 增量过滤。"""
+    """按 chinese 关键词组逐词检索 NAPSTIC（含网络首发）。
+
+    该检索接口只支持相关度排序、无法按日期过滤或排序（实测 sort/order 参数均被忽略），
+    因此不按 since 窗口硬过滤：客户端按 online_date 降序（无日期沉底），重复由状态文件去重。
+    """
     if cn_napstic is None:
         print(f"[warn] {source['name']} skipped: cn_napstic module not found", file=sys.stderr)
         return []
@@ -758,7 +762,6 @@ def fetch_napstic_search(config: dict[str, Any], source: dict[str, Any], since: 
         return []
     size = max(1, int(source.get("size", 20)))
     delay = float(source.get("delay_seconds", 1.5))
-    since_str = since.strftime("%Y-%m-%d") if since else ""
     records: list[dict[str, Any]] = []
     total = 0
     for term in terms:
@@ -771,23 +774,26 @@ def fetch_napstic_search(config: dict[str, Any], source: dict[str, Any], since: 
         time.sleep(delay * 0.5)
     # 同一关键词族下多词可能命中同一篇：按 DOI/source_id 先去重
     seen_keys: set[str] = set()
-    items = []
-    bypass = bool(source.get("bypass_journal_whitelist", False))
+    unique: list[dict[str, Any]] = []
     for rec in records:
         doi = normalize_doi(rec.get("doi"))
         rec_key = doi or normalize_space(rec.get("source_id"))
-        if rec_key:
-            if rec_key in seen_keys:
-                continue
-            seen_keys.add(rec_key)
-        if since_str and rec.get("online_date") and rec["online_date"][:10] < since_str:
+        if rec_key and rec_key in seen_keys:
             continue
+        if rec_key:
+            seen_keys.add(rec_key)
+        unique.append(rec)
+    # 网络首发最新在前；无 online_date 的沉底（空串自然小于任意日期）
+    unique.sort(key=lambda rec: rec.get("online_date") or "", reverse=True)
+    items = []
+    bypass = bool(source.get("bypass_journal_whitelist", False))
+    for rec in unique[:limit]:
         item = clean_item(napstic_to_item(rec, source))
         if bypass:
             item["bypass_journal_whitelist"] = True
         items.append(item)
-    print(f"[info] {source['name']} terms={len(terms)}: platform hit {total}, fetched {len(items)}", file=sys.stderr)
-    return items[:limit]
+    print(f"[info] {source['name']} terms={len(terms)}: platform hit {total}, kept {len(items)}", file=sys.stderr)
+    return items
 
 
 def fetch_napstic_journals(config: dict[str, Any], source: dict[str, Any], since: dt.date, limit: int) -> list[dict[str, Any]]:
@@ -1538,13 +1544,29 @@ def interpret_item_with_deepseek_retry(
     raise last_error
 
 
+def llm_endpoint(llm_config: dict[str, Any]) -> str:
+    """LLM 端点：优先 DEEPSEEK_BASE_URL 环境变量（本地可覆盖为任意 OpenAI 兼容网关），否则用配置值。"""
+    default = str(llm_config.get("base_url", "https://api.deepseek.com/chat/completions"))
+    return env_value(llm_config.get("base_url_env", "DEEPSEEK_BASE_URL"), default)
+
+
+def llm_headers(api_key: str) -> dict[str, str]:
+    """部分 OpenAI 兼容网关用浏览器 UA 才放行（如 opencode.ai 的 Cloudflare 校验）。"""
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        ),
+    }
+
+
 def interpret_item_with_deepseek(
     item: dict[str, Any],
     llm_config: dict[str, Any],
     fallback: dict[str, str],
     api_key: str,
 ) -> dict[str, str]:
-    endpoint = llm_config.get("base_url", "https://api.deepseek.com/chat/completions")
     model = llm_config.get("model", "deepseek-v4-flash")
     timeout = int(llm_config.get("timeout_seconds", 60))
     payload = {
@@ -1587,9 +1609,9 @@ def interpret_item_with_deepseek(
         ],
     }
     data = http_post_json(
-        str(endpoint),
+        llm_endpoint(llm_config),
         payload,
-        {"Authorization": f"Bearer {api_key}"},
+        llm_headers(api_key),
         timeout=timeout,
     )
     content = (((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
@@ -1675,9 +1697,9 @@ def build_daily_brief(items: list[dict[str, Any]], config: dict[str, Any]) -> di
     }
     try:
         data = http_post_json(
-            str(llm_config.get("base_url", "https://api.deepseek.com/chat/completions")),
+            llm_endpoint(llm_config),
             payload,
-            {"Authorization": f"Bearer {api_key}"},
+            llm_headers(api_key),
             timeout=int(llm_config.get("timeout_seconds", 60)),
         )
         content = (((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
