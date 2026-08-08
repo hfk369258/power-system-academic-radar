@@ -62,7 +62,11 @@ NAPSTIC 记录 → `clean_item()` 映射：
 
 ### 评分豁免
 
-`dedupe_and_score`（`:1251`）的 `min_score` 豁免条件由 `startswith("manual")` 扩展为 `startswith(("manual", "napstic"))`——检索通道返回的条目本身已被中文关键词检索式约束，低分豁免合理。
+`dedupe_and_score`（`:1251`）的 `min_score` 豁免条件扩展为：`source` 以 `manual`/`napstic` 开头**或包含 `napstic`（大小写不敏感）**——注意 `clean_item` 中 `source` 保存的是配置里的中文源名（如 `中文检索(NAPSTIC)`），因此用包含判断而非前缀判断。检索通道返回的条目本身已被中文关键词检索式约束，低分豁免合理。
+
+### 期刊白名单
+
+`journal_filter` 启用时是硬门槛。三份模板的 `categories.chinese_ei` 需补全为 11 本（新增：中国电力、电力建设、华北电力大学学报、现代电力），保证 NAPSTIC 全部期刊可过白名单；`journal_filter_match` 为子串匹配，`华北电力大学学报(自然科学版)` 可命中 `华北电力大学学报`。
 
 ## 新抓取器
 
