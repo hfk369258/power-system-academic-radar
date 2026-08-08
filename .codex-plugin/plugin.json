@@ -1,6 +1,6 @@
 {
   "name": "power-system-academic-radar",
-  "version": "0.1.0+codex.20260801123025",
+  "version": "0.2.0+codex.20260809",
   "description": "Track, score, deduplicate, and summarize power-system configuration and optimal-dispatch literature from public APIs, RSS feeds, IEEE API access, and manual IEEE/CNKI exports.",
   "author": {
     "name": "Codex local plugin"
