@@ -302,49 +302,75 @@ except ImportError:  # pragma: no cover
 Run: `python scripts/test_power_system_radar.py -v 2>&1 | grep -E "test_napstic_search|FAIL|ERROR"`
 Expected: `ERROR`（`AttributeError: module ... has no attribute 'fetch_napstic_search'`）。
 
-- [ ] **Step 4: 实现**（放在 `fetch_rss` 函数之后）
+- [ ] **Step 4: 实现**（放在 `fetch_rss` 函数之后；**实测修正**：opaj 检索接口把空格分词按 AND 处理、不支持 OR 语法——OR 拼成的复合查询会返回 0。因此改为 `napstic_query_terms()` 把 chinese 组逐词拆开独立查询，词组内按 DOI/source_id 去重；`query_override` 或 auto_from_keywords 关闭时原样单发）
 
 ```python
+def napstic_query_terms(config: dict[str, Any], source: dict[str, Any]) -> list[str]:
+    """NAPSTIC 检索接口把空格分隔的词按 AND 处理，不支持 OR/AND 语法（实测 OR 词被忽略、多词合并后可能命中 0）。
+
+    auto_from_keywords 模式下把 `chinese` 组的每个关键词拆成独立查询；配置了 query_override 时原样作为单个查询。
+    """
+    query = source_query(config, source)
+    if not query:
+        return []
+    if (config.get("queries") or {}).get("auto_from_keywords") and not source.get("query_override"):
+        terms: list[str] = []
+        for raw in (config.get("keywords") or {}).get("chinese", []):
+            term = normalize_space(raw)
+            if term and term not in terms:
+                terms.append(term)
+        return terms
+    return [query]
+
+
 def fetch_napstic_search(config: dict[str, Any], source: dict[str, Any], since: dt.date, limit: int) -> list[dict[str, Any]]:
-    """按中文关键词检索 NAPSTIC（含网络首发），按 online_date 增量过滤。"""
+    """按 chinese 关键词组逐词检索 NAPSTIC（含网络首发），按 online_date 增量过滤。"""
     if cn_napstic is None:
         print(f"[warn] {source['name']} skipped: cn_napstic module not found", file=sys.stderr)
         return []
-    query = source_query(config, source)
-    if not query:
+    terms = napstic_query_terms(config, source)
+    if not terms:
         print(f"[warn] {source['name']} skipped: empty query", file=sys.stderr)
         return []
     size = max(1, int(source.get("size", 20)))
-    pages = max(1, int(source.get("pages", 0)) or -(-limit // size))
     delay = float(source.get("delay_seconds", 1.5))
     since_str = since.strftime("%Y-%m-%d") if since else ""
     records: list[dict[str, Any]] = []
     total = 0
-    try:
-        for page in range(1, pages + 1):
-            page_records, total = cn_napstic.search_literature(query, size=size, page=page, delay=delay)
+    for term in terms:
+        try:
+            page_records, term_total = cn_napstic.search_literature(term, size=size, page=1, delay=delay)
+            total += int(term_total)
             records.extend(page_records)
-            time.sleep(delay * 0.5)
-    except Exception as exc:  # noqa: BLE001
-        print(f"[warn] {source['name']} failed mid-search: {exc}", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[warn] {source['name']} term '{term}' failed: {exc}", file=sys.stderr)
+        time.sleep(delay * 0.5)
+    # 同一关键词族下多词可能命中同一篇：按 DOI/source_id 先去重
+    seen_keys: set[str] = set()
     items = []
+    bypass = bool(source.get("bypass_journal_whitelist", False))
     for rec in records:
+        doi = normalize_doi(rec.get("doi"))
+        rec_key = doi or normalize_space(rec.get("source_id"))
+        if rec_key:
+            if rec_key in seen_keys:
+                continue
+            seen_keys.add(rec_key)
         if since_str and rec.get("online_date") and rec["online_date"][:10] < since_str:
             continue
-        items.append(clean_item(napstic_to_item(rec, source)))
-    print(f"[info] {source['name']} '{query}': platform hit {total}, fetched {len(items)}", file=sys.stderr)
+        item = clean_item(napstic_to_item(rec, source))
+        if bypass:
+            item["bypass_journal_whitelist"] = True
+        items.append(item)
+    print(f"[info] {source['name']} terms={len(terms)}: platform hit {total}, fetched {len(items)}", file=sys.stderr)
     return items[:limit]
 ```
 
-- [ ] **Step 5: 运行确认通过**（命令同 Step 3）
-Expected: 两个用例 `ok`，整体 `OK`。
-
-- [ ] **Step 6: 提交**
-
-```bash
-git add scripts/power_system_radar.py scripts/test_power_system_radar.py
-git commit -m "feat: add fetch_napstic_search source with online-date incremental filter"
-```
+配套测试（替换原两个测试）：
+- 单关键词：`search_literature` 调用 1 次、参数为该词；`online_date < since` 记录被过滤；
+- 多关键词：每个词各调用 1 次，相同 `source_id` 记录只保留 1 条；
+- `napstic_query_terms`：auto_from_keywords 关闭 + query_override 时返回 `[override]`；
+- `journal_filter_match` 尊重 `bypass_journal_whitelist` 标记（源配置开启时跳过白名单——实测检索通道覆盖全站上万种期刊，白名单会让 search 恒为 0 篇）。
 
 ---
 
@@ -537,9 +563,9 @@ git commit -m "feat: dispatch napstic sources, cap search limit, exempt napstic 
    "type": "napstic_search",
    "enabled": true,
    "max_results": 40,
-   "pages": 2,
    "size": 20,
-   "delay_seconds": 1.5
+   "delay_seconds": 1.5,
+   "bypass_journal_whitelist": true
   },
   {
    "name": "中文核心期刊目录(NAPSTIC)",
@@ -552,6 +578,8 @@ git commit -m "feat: dispatch napstic sources, cap search limit, exempt napstic 
    "journals": ["zgdjgcxb", "dlxtzdh", "dwjs", "gdyjs", "dgjsxb", "jdq", "dlzdhsb", "zgdl", "dljs", "hbdldxxb", "xddl"]
   }
 ```
+
+（注意：`napstic_search` 需 `bypass_journal_whitelist: true`——检索通道覆盖全站上万种期刊，绝大多数不在 `chinese_ei` 白名单，不加此开关 search 恒为 0 篇。`pages` 字段已移除，改为每词一页 `size` 条。）
 
 （先 Read 对应文件确认锚点处实际缩进，保持一致。）
 
@@ -777,10 +805,9 @@ Expected: 无新未跟踪文件出现（除已提交改动）。
 **Files:**
 - Create: `radar.env.ps1`（本机，gitignored，**严禁提交**）
 
-- [ ] **Step 1: 创建 radar.env.ps1**
+- [ ] **Step 1: 创建 radar.env.ps1**（⚠️ 实测教训：PowerShell 5.1 按 ANSI 解析无 BOM 的 .ps1，**文件内不得包含中文注释**，否则部分行可能解析异常；示例 `radar.env.example.ps1` 已是纯 ASCII）
 
 ```powershell
-# 本机凭据：已被 .gitignore 排除，禁止提交
 $env:RADAR_SMTP_HOST = "smtp.qq.com"
 $env:RADAR_SMTP_PORT = "465"
 $env:RADAR_SMTP_USER = "sender@qq.example.com"
