@@ -106,6 +106,32 @@ class RadarConfigUITests(unittest.TestCase):
         with self.assertRaisesRegex(ui.ConfigError, "方案编号无效"):
             self.store.get("../../secret")
 
+    def test_language_quotas_and_backfill_switch_are_saved(self):
+        payload = self.store.get("basic")
+        payload["profile"]["daily_target_en"] = 12
+        payload["profile"]["daily_target_zh"] = 4
+        payload["profile"]["backfill_enabled"] = True
+        saved = self.store.save("basic", payload)
+        self.assertEqual(saved["profile"]["daily_target_en"], 12)
+        self.assertEqual(saved["profile"]["daily_target_zh"], 4)
+        self.assertTrue(saved["profile"]["backfill_enabled"])
+        viewed = self.store.get("basic")
+        self.assertEqual(viewed["profile"]["daily_target_en"], 12)
+        self.assertEqual(viewed["profile"]["daily_target_zh"], 4)
+        self.assertTrue(viewed["profile"]["backfill_enabled"])
+
+    def test_legacy_payload_still_keeps_daily_target_items(self):
+        payload = self.store.get("basic")
+        payload["profile"]["daily_target_items"] = 7
+        saved = self.store.save("basic", payload)
+        self.assertEqual(saved["profile"]["daily_target_items"], 7)
+
+    def test_stop_schedule_disables_all_tasks(self):
+        with mock.patch.object(ui.ConfigStore, "_disable_tasks", return_value=None) as disable_mock:
+            result = self.store.stop_schedule("basic")
+        self.assertEqual(result, {"profile": "basic"})
+        disable_mock.assert_called_once_with("basic")
+
     def test_credentials_round_trip_preserves_unmanaged_lines_and_creates_backup(self):
         view = self.store.get("basic")
         values = view["credentials"]

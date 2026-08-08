@@ -135,9 +135,11 @@
       <article class="panel" data-panel="schedule">
         <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动运行设置">⠿</button><div><h2>运行设置</h2><small>控制每天检索与推送的规模</small></div></div></header>
         <div class="panel-body form-grid">
-          <label class="field">每日目标篇数<input id="dailyTarget" type="number" min="0" max="100"></label>
+          <label class="field">英文每日篇数<input id="dailyTargetEn" type="number" min="0" max="100"></label>
+          <label class="field">中文每日篇数<input id="dailyTargetZh" type="number" min="0" max="100"></label>
           <label class="field">近期检索窗口（天）<input id="lookback" type="number" min="1" max="90"></label>
           <label class="field">历史回填窗口（天）<input id="backfill" type="number" min="1" max="3650"></label>
+          <label class="field">启用历史回填<input id="backfillEnabled" type="checkbox" style="width:auto;margin-top:8px"></label>
           <label class="field">每个来源候选量<input id="candidateLimit" type="number" min="10" max="1000"></label>
         </div>
       </article>
@@ -146,7 +148,7 @@
         <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动推送计划">⠿</button><div><h2>分类推送计划</h2><small>三类文献互不混发</small></div></div></header>
         <div class="panel-body">
           <div class="schedule-list" id="scheduleList"></div>
-          <div class="section-actions"><button class="btn primary" id="applyScheduleBtn">保存并应用计划</button></div>
+          <div class="section-actions"><button class="btn primary" id="applyScheduleBtn">保存并应用计划</button><button class="btn danger" id="stopScheduleBtn">停止任务</button></div>
           <p class="hint">关闭某一类后，会停用它自己的 Windows 定时任务；其他类型不受影响。</p>
         </div>
       </article>
@@ -243,7 +245,7 @@
       const d = raw && typeof raw === 'object' ? raw : {};
       const meta = state.profiles.find(item => item.id === profile) || {};
       const defaultTime = meta.default_time || '08:30';
-      d.profile ||= {daily_target_items:10,lookback_days:14,backfill_lookback_days:365,candidate_results_per_source:200};
+      d.profile ||= {daily_target_items:10,daily_target_en:10,daily_target_zh:5,backfill_enabled:false,lookback_days:14,backfill_lookback_days:365,candidate_results_per_source:200};
       d.keyword_groups ||= [];
       d.sources ||= [];
       d.journal_filter = {enabled:true,allow_preprints:false,allow_conference_papers:false,...(d.journal_filter || {})};
@@ -335,7 +337,7 @@
     }
     function collect() {
       const data = clone(state.data);
-      data.profile = { daily_target_items: +$('dailyTarget').value, lookback_days: +$('lookback').value, backfill_lookback_days: +$('backfill').value, candidate_results_per_source: +$('candidateLimit').value };
+      data.profile = { daily_target_en: +$('dailyTargetEn').value, daily_target_zh: +$('dailyTargetZh').value, backfill_enabled: $('backfillEnabled').checked, lookback_days: +$('lookback').value, backfill_lookback_days: +$('backfill').value, candidate_results_per_source: +$('candidateLimit').value };
       data.journal_filter = { enabled: $('journalEnabled').checked };
       scheduleTypes.forEach(([type]) => {
         data.type_schedules[type] = {
@@ -371,9 +373,18 @@
       catch (error) { toast(chineseError(error, '推送计划应用失败'), true); }
     }
 
+    async function stopSchedule() {
+      if (!state.data.type_schedules) return;
+      if (!confirm('确定停止当前方案的全部 Windows 定时任务吗？\n配置、关键词与已发送历史都会保留，只是不再自动推送。')) return;
+      try { const result = await api(`/api/schedule/stop?profile=${state.profile}`, {method:'POST',body:'{}'}); toast(result.message || '推送计划已停止'); }
+      catch (error) { toast(chineseError(error, '停止任务失败'), true); }
+    }
+
     function render() {
       const d = state.data;
-      $('dailyTarget').value = d.profile.daily_target_items; $('lookback').value = d.profile.lookback_days;
+      $('dailyTargetEn').value = d.profile.daily_target_en; $('dailyTargetZh').value = d.profile.daily_target_zh;
+      $('backfillEnabled').checked = !!d.profile.backfill_enabled;
+      $('lookback').value = d.profile.lookback_days;
       $('backfill').value = d.profile.backfill_lookback_days; $('candidateLimit').value = d.profile.candidate_results_per_source;
       $('journalEnabled').checked = d.journal_filter.enabled; $('autoQuery').checked = d.auto_query;
       $('llmEnabled').checked = d.llm.enabled; $('llmProvider').value = d.llm.provider; $('llmModel').value = d.llm.model; $('llmBaseUrl').value = d.llm.base_url;
@@ -501,7 +512,7 @@
     $('addGroupBtn').addEventListener('click', () => { let i = 1; let name = `new_group_${i}`; const names = new Set(state.data.keyword_groups.map(x => x.name)); while (names.has(name)) name = `new_group_${++i}`; state.data.keyword_groups.push({ name, terms: [] }); renderGroups(); changed(); });
     $('addEmailBtn').addEventListener('click', () => { state.data.email.recipients.push(''); state.data.email.uses_environment_fallback = false; renderEmails(); changed(); setTimeout(() => $('emailList').querySelector('.email-row:last-child input')?.focus(), 0); });
     $('saveBtn').addEventListener('click', save); $('reloadBtn').addEventListener('click', () => { if (confirmLoss()) load(); });
-    $('saveCredentialsBtn').addEventListener('click', saveCredentials); $('applyScheduleBtn').addEventListener('click', applySchedule);
+    $('saveCredentialsBtn').addEventListener('click', saveCredentials); $('applyScheduleBtn').addEventListener('click', applySchedule); $('stopScheduleBtn').addEventListener('click', stopSchedule);
     $('restoreBtn').addEventListener('click', async () => { if (!confirm('恢复到上一次保存前的配置？当前内容将被替换。')) return; try { const result = await api(`/api/restore?profile=${state.profile}`, { method: 'POST', body: '{}' }); state.data = normalizeData(clone(result.data), state.profile); render(); setDirty(false); toast(result.message); } catch (error) { toast(chineseError(error, '配置恢复失败'), true); } });
     window.addEventListener('error', event => { event.preventDefault(); toast(chineseError(event.error || event.message, '页面运行失败，请重新启动控制台'), true); });
     window.addEventListener('unhandledrejection', event => { event.preventDefault(); toast(chineseError(event.reason, '操作失败，请重试'), true); });

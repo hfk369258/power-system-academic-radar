@@ -244,6 +244,9 @@ def editable_view(
         "revision": _revision(config),
         "profile": {
             "daily_target_items": int(profile.get("daily_target_items", 10)),
+            "daily_target_en": int(profile.get("daily_target_en", 10)),
+            "daily_target_zh": int(profile.get("daily_target_zh", 5)),
+            "backfill_enabled": bool(profile.get("backfill_enabled", False)),
             "lookback_days": int(profile.get("lookback_days", 14)),
             "backfill_lookback_days": int(profile.get("backfill_lookback_days", 365)),
             "candidate_results_per_source": int(profile.get("candidate_results_per_source", 200)),
@@ -316,9 +319,17 @@ def apply_editable_payload(config: dict[str, Any], payload: dict[str, Any]) -> d
     updated = deepcopy(config)
     profile_input = payload.get("profile") or {}
     profile = updated.setdefault("profile", {})
+    legacy_sum = int(profile.get("daily_target_en", 10)) + int(profile.get("daily_target_zh", 5))
     profile["daily_target_items"] = _bounded_int(
-        profile_input.get("daily_target_items"), "每日篇数", 0, 100
+        profile_input.get("daily_target_items", legacy_sum), "每日篇数", 0, 100
     )
+    profile["daily_target_en"] = _bounded_int(
+        profile_input.get("daily_target_en", 10), "英文每日篇数", 0, 100
+    )
+    profile["daily_target_zh"] = _bounded_int(
+        profile_input.get("daily_target_zh", 5), "中文每日篇数", 0, 100
+    )
+    profile["backfill_enabled"] = bool(profile_input.get("backfill_enabled", False))
     profile["lookback_days"] = _bounded_int(profile_input.get("lookback_days"), "近期窗口", 1, 90)
     profile["backfill_lookback_days"] = _bounded_int(
         profile_input.get("backfill_lookback_days"), "回填窗口", profile["lookback_days"], 3650
@@ -806,6 +817,14 @@ class ConfigStore:
             }
         return {"schedules": applied}
 
+    def stop_schedule(self, profile: str) -> dict[str, str]:
+        """停用该方案的全部 Windows 计划任务（旧版混合任务与分类任务）。"""
+        self._ensure_initialized()
+        profile = self._validate_profile_id(profile)
+        with self._lock:
+            self._disable_tasks(profile)
+        return {"profile": profile}
+
     def restore(self, profile: str) -> dict[str, Any]:
         path = self._path(profile)
         backup = path.with_suffix(path.suffix + ".bak")
@@ -920,6 +939,10 @@ class RadarUIHandler(BaseHTTPRequestHandler):
             if api_path == "/api/schedule/apply":
                 applied = self.store.apply_schedule(self._profile())
                 self._json(HTTPStatus.OK, {"ok": True, "data": applied, "message": "Windows 推送计划已更新"})
+                return
+            if api_path == "/api/schedule/stop":
+                self.store.stop_schedule(self._profile())
+                self._json(HTTPStatus.OK, {"ok": True, "message": "Windows 推送计划已停止"})
                 return
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "接口不存在"})
