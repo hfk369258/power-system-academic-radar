@@ -96,6 +96,32 @@ sources:
     max_results: 50
     urls:
       - https://example.com/replace-with-open-journal-or-preprint-feed.xml
+  - name: 中文检索(NAPSTIC)
+    type: napstic_search
+    enabled: true
+    max_results: 40
+    pages: 2
+    size: 20
+    delay_seconds: 1.5
+  - name: 中文核心期刊目录(NAPSTIC)
+    type: napstic_journals
+    enabled: false
+    max_results: 30
+    months: 3
+    fetch_details: false
+    delay_seconds: 1.5
+    journals:
+      - zgdjgcxb
+      - dlxtzdh
+      - dwjs
+      - gdyjs
+      - dgjsxb
+      - jdq
+      - dlzdhsb
+      - zgdl
+      - dljs
+      - hbdldxxb
+      - xddl
 
 manual_exports:
   enabled: true
@@ -157,6 +183,10 @@ journal_filter:
       - 高电压技术
       - 电工技术学报
       - 电力自动化设备
+      - 中国电力
+      - 电力建设
+      - 华北电力大学学报
+      - 现代电力
   excluded_venues:
     - Electric Power Systems Research
     - Energy Reports

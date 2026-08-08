@@ -256,7 +256,7 @@ def clean_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-CHINESE_QUERY_TYPES = {"cnki", "manual_chinese", "napstic_search"}
+CHINESE_QUERY_TYPES = {"cnki", "manual_chinese", "napstic_search", "napstic_journals"}
 
 
 def build_default_query(config: dict[str, Any], source_type: str) -> str:
