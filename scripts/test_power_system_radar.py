@@ -282,6 +282,28 @@ class RadarStateTests(unittest.TestCase):
         self.assertTrue(radar.item_key(no_doi).startswith("sid:"))
         self.assertTrue(radar.item_key(no_id).startswith("title:"))
 
+    def test_build_default_query_uses_chinese_keywords_for_napstic(self) -> None:
+        config = {
+            "keywords": {
+                "core": ["power system"],
+                "chinese": ["电力系统", "构网型"],
+                "exclude": [],
+            },
+            "queries": {"auto_from_keywords": True, "chinese": "legacy"},
+        }
+        query = radar.build_default_query(config, "napstic_search")
+
+        self.assertIn("电力系统", query)
+        self.assertIn("构网型", query)
+        self.assertNotIn("power system", query)
+        # 惯例：query_override 只在 auto_from_keywords 关闭时生效（与 openalex/scopus 同源行为）
+        manual = {"auto_from_keywords": False, "chinese": "legacy"}
+        override = radar.source_query(
+            {"keywords": config["keywords"], "queries": manual},
+            {"type": "napstic_search", "query_override": "构网型 AND 储能"},
+        )
+        self.assertEqual(override, "构网型 AND 储能")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -248,6 +248,9 @@ def clean_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+CHINESE_QUERY_TYPES = {"cnki", "manual_chinese", "napstic_search"}
+
+
 def build_default_query(config: dict[str, Any], source_type: str) -> str:
     queries = config.get("queries") or {}
     if queries.get("auto_from_keywords"):
@@ -266,7 +269,7 @@ def build_default_query(config: dict[str, Any], source_type: str) -> str:
                     terms.append(f'"{term}"' if " " in term else term)
             return terms
 
-        if source_type in {"cnki", "manual_chinese"}:
+        if source_type in CHINESE_QUERY_TYPES:
             return " OR ".join(quoted_terms(["chinese"]))
 
         # UI 管理的关键词分成“研究对象”和“研究问题/方法”两侧，避免退化成过宽的 OR 检索。
@@ -283,7 +286,7 @@ def build_default_query(config: dict[str, Any], source_type: str) -> str:
             if source_type == "arxiv":
                 return f"all:({expression})"
             return expression
-    if source_type in {"cnki", "manual_chinese"}:
+    if source_type in CHINESE_QUERY_TYPES:
         return queries.get("chinese") or " ".join(config["keywords"].get("chinese", []))
     return queries.get("english") or " ".join(config["keywords"].get("core", []))
 
