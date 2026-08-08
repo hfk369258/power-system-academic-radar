@@ -760,6 +760,33 @@ def fetch_napstic_search(config: dict[str, Any], source: dict[str, Any], since: 
     return items[:limit]
 
 
+def fetch_napstic_journals(config: dict[str, Any], source: dict[str, Any], since: dt.date, limit: int) -> list[dict[str, Any]]:
+    """按期刊 slug 抓最近 N 期（滚动窗口，去重由状态文件兜底）。"""
+    if cn_napstic is None:
+        print(f"[warn] {source['name']} skipped: cn_napstic module not found", file=sys.stderr)
+        return []
+    delay = float(source.get("delay_seconds", 1.5))
+    months = max(1, int(source.get("months", 3)))
+    fetch_details = bool(source.get("fetch_details", False))
+    slugs = list(source.get("journals") or cn_napstic.JOURNALS)
+    items: list[dict[str, Any]] = []
+    for slug in slugs:
+        if slug not in cn_napstic.JOURNALS:
+            print(f"[warn] {source['name']}: unknown journal slug skipped: {slug}", file=sys.stderr)
+            continue
+        try:
+            articles, _ = cn_napstic.fetch_recent(slug, months=months, fetch_details=fetch_details, delay=delay)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[warn] {source['name']}: journal {slug} failed: {exc}", file=sys.stderr)
+            continue
+        for article in articles:
+            items.append(clean_item(napstic_to_item(article, source)))
+        if len(items) >= limit:
+            break
+        time.sleep(delay)
+    return items[:limit]
+
+
 def iter_feed_entries(root: ET.Element) -> Iterable[dict[str, Any]]:
     atom_ns = {"a": "http://www.w3.org/2005/Atom"}
     channel = root.find("channel")

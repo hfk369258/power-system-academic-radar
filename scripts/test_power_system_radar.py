@@ -337,6 +337,38 @@ class RadarStateTests(unittest.TestCase):
             )
         self.assertEqual(items, [])
 
+    def test_napstic_journals_fetches_configured_slugs(self) -> None:
+        article = {
+            "source": "napstic",
+            "source_id": "zgdjgcxb202417002",
+            "title_cn": "双碳目标下能源电力系统趋势",
+            "title_en": "Energy transition trends",
+            "abstract_cn": "摘要",
+            "journal_cn": "中国电机工程学报",
+            "year": "2024",
+            "issue": "17",
+            "pages": "6707-6720",
+            "doi": "10.13334/j.0258-8013.pcsee.240634",
+            "detail_url": "https://search.napstic.cn/literature/periodical/010zgdjgcxb202417002",
+        }
+        source = {
+            "name": "中文核心期刊目录(NAPSTIC)",
+            "type": "napstic_journals",
+            "months": 3,
+            "delay_seconds": 0,
+            "journals": ["zgdjgcxb", "bad-slug"],
+        }
+
+        with mock.patch.object(radar.cn_napstic, "fetch_recent", return_value=([article], [(2024, 17, 1)])) as call_mock:
+            items = radar.fetch_napstic_journals({}, source, dt.date(2026, 7, 1), 30)
+
+        self.assertEqual(call_mock.call_count, 1)  # bad-slug 被跳过
+        self.assertEqual(call_mock.call_args.args[0], "zgdjgcxb")
+        self.assertEqual(items[0]["title"], "双碳目标下能源电力系统趋势")
+        self.assertEqual(items[0]["title_en"], "Energy transition trends")
+        self.assertEqual(items[0]["venue"], "中国电机工程学报")
+        self.assertEqual(items[0]["source"], "中文核心期刊目录(NAPSTIC)")
+
 
 if __name__ == "__main__":
     unittest.main()
