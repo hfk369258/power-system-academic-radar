@@ -463,6 +463,9 @@ class RadarStateTests(unittest.TestCase):
 
         self.assertIn("英文文献", md)
         self.assertIn("中文文献", md)
+        # 中文文献显示“中文摘要”，不出现误导性的英文摘要/中文翻译
+        self.assertIn("**中文摘要：**", md)
+        self.assertIn("**英文摘要：**", md)
 
     def test_llm_skips_native_chinese_items(self) -> None:
         zh_item = {"title": "储能容量优化配置", "abstract": "中文摘要本身无需翻译。", "url": ""}

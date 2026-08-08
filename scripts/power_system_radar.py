@@ -1833,16 +1833,17 @@ def render_markdown(items: list[dict[str, Any]], config: dict[str, Any]) -> str:
             )
         abstract = normalize_space(item.get("abstract"))
         abstract_zh = normalize_space(item.get("abstract_zh"))
+        is_zh = contains_cjk(item.get("title"))
         if abstract:
             lines.extend(
                 [
-                    "### 英文摘要（原文）",
+                    f"### {'中文摘要（原文）' if is_zh else '英文摘要（原文）'}",
                     "",
                     textwrap.shorten(abstract, width=900, placeholder=" ..."),
                     "",
                 ]
             )
-            if abstract_zh:
+            if not is_zh and abstract_zh:
                 lines.extend(["### 中文翻译", "", textwrap.shorten(abstract_zh, width=1200, placeholder=" ..."), ""])
     return "\n".join(lines)
 
@@ -1938,17 +1939,21 @@ def render_digest_markdown(items: list[dict[str, Any]], config: dict[str, Any]) 
             )
         abstract = normalize_space(item.get("abstract"))
         abstract_zh = normalize_space(item.get("abstract_zh"))
+        is_zh = contains_cjk(item.get("title"))
         lines.extend(["### 4. 原始信息", ""])
         if abstract:
             if item.get("abstract_source"):
                 lines.extend([f"**摘要来源：** {item.get('abstract_source')}", ""])
-            lines.extend(["**英文摘要：**", "", textwrap.shorten(abstract, width=1200, placeholder=" ..."), ""])
-            if abstract_zh:
-                lines.extend(["**中文翻译：**", "", textwrap.shorten(abstract_zh, width=1600, placeholder=" ..."), ""])
+            if is_zh:
+                lines.extend(["**中文摘要：**", "", textwrap.shorten(abstract, width=1200, placeholder=" ..."), ""])
             else:
-                lines.extend(["**中文翻译：** 暂不可用", ""])
+                lines.extend(["**英文摘要：**", "", textwrap.shorten(abstract, width=1200, placeholder=" ..."), ""])
+                if abstract_zh:
+                    lines.extend(["**中文翻译：**", "", textwrap.shorten(abstract_zh, width=1600, placeholder=" ..."), ""])
+                else:
+                    lines.extend(["**中文翻译：** 暂不可用", ""])
         else:
-            lines.extend(["**英文摘要：** 无", "", "**中文翻译：** 无英文摘要可翻译", ""])
+            lines.extend(["**摘要：** 无", ""])
         lines.extend([f"**关键词：** {keywords or '无'}", ""])
     return "\n".join(lines)
 
@@ -2151,9 +2156,9 @@ function cardHTML(p){{
  const tags=p.kw_terms.slice(0,6).map(k=>`<span class="tag">${{attr(k)}}</span>`).join('');
  const source=p.url?`<a class="btn primary" href="${{attr(p.url)}}" target="_blank" rel="noopener">阅读原文 →</a>`:'';
  const oa=p.oa_url?`<a class="btn oa" href="${{attr(p.oa_url)}}" target="_blank" rel="noopener">OA 全文</a>`:'';
- const abstractZh=p.abstract_zh_short?`<div class="abstract zh"><b>中文翻译：</b>${{p.abstract_zh_short}}</div>`:'<div class="abstract zh"><b>中文翻译：</b>暂不可用</div>';
+ const abstractZh=p.lang!=='zh'&&p.abstract_zh_short?`<div class="abstract zh"><b>中文翻译：</b>${{p.abstract_zh_short}}</div>`:(p.lang!=='zh'?'<div class="abstract zh"><b>中文翻译：</b>暂不可用</div>':'');
  const flow=p.has_analysis?`<div class="flow"><div class="node"><b>研究问题</b>${{p.problem||'待核实'}}</div><div class="arrow">→</div><div class="node"><b>方法路线</b>${{p.method||'待核实'}}</div><div class="arrow">→</div><div class="node"><b>创新/结果</b>${{p.innovation||'待核实'}}</div><div class="arrow">→</div><div class="node"><b>应用场景</b>${{p.application||'待核实'}}</div></div>`:'<div class="abstract">暂无自动概括，请结合原文阅读。</div>';
- return `<article class="card"><div class="card-top"><div class="title">${{p.title}}</div><span class="score ${{p.score>=7?'high':''}}">相关度 ${{p.score}}</span></div><div class="byline">${{p.authors||'作者未知'}} · ${{p.venue||'来源未知'}}${{p.year?' · '+p.year:''}}${{p.is_oa?' · OA':''}}</div><div class="tags">${{tags}}</div><div class="abstract"><b>英文摘要：</b>${{p.abstract_short||'暂无摘要，请打开原文核实。'}}</div>${{abstractZh}}${{flow}}<div class="actions">${{source}}${{oa}}<button class="btn more" type="button" data-action="toggle" aria-expanded="false">展开完整摘要与分析</button></div><div class="detail"><p><b>完整英文摘要：</b>${{p.abstract||'暂无摘要。'}}</p><p><b>完整中文翻译：</b>${{p.abstract_zh||'暂不可用。'}}</p><p><b>借鉴价值：</b>${{p.value||'待核实。'}}</p><p><b>需要核实：</b>${{p.caveat||'请查阅原文。'}}</p></div></article>`;
+ return `<article class="card"><div class="card-top"><div class="title">${{p.title}}</div><span class="score ${{p.score>=7?'high':''}}">相关度 ${{p.score}}</span></div><div class="byline">${{p.authors||'作者未知'}} · ${{p.venue||'来源未知'}}${{p.year?' · '+p.year:''}}${{p.is_oa?' · OA':''}}</div><div class="tags">${{tags}}</div><div class="abstract"><b>${{p.lang==='zh'?'中文摘要：':'英文摘要：'}}</b>${{p.abstract_short||'暂无摘要，请打开原文核实。'}}</div>${{abstractZh}}${{flow}}<div class="actions">${{source}}${{oa}}<button class="btn more" type="button" data-action="toggle" aria-expanded="false">展开完整摘要与分析</button></div><div class="detail"><p><b>${{p.lang==='zh'?'完整中文摘要：':'完整英文摘要：'}}</b>${{p.abstract||'暂无摘要。'}}</p>${{p.lang!=='zh'?`<p><b>完整中文翻译：</b>${{p.abstract_zh||'暂不可用。'}}</p>`:''}}<p><b>借鉴价值：</b>${{p.value||'待核实。'}}</p><p><b>需要核实：</b>${{p.caveat||'请查阅原文。'}}</p></div></article>`;
 }}
 function render(){{
  const q=document.getElementById('search').value.trim().toLowerCase();
