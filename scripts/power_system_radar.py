@@ -154,6 +154,9 @@ def item_key(item: dict[str, Any]) -> str:
     doi = normalize_doi(item.get("doi"))
     if doi:
         return f"doi:{doi}"
+    source_id = normalize_space(item.get("source_id"))
+    if source_id:
+        return "sid:" + hashlib.sha1(source_id.encode("utf-8")).hexdigest()
     title = normalize_space(item.get("title")).lower()
     return "title:" + hashlib.sha1(title.encode("utf-8")).hexdigest()
 
@@ -197,9 +200,33 @@ def normalize_bool(value: Any) -> bool | None:
     return None
 
 
+def napstic_to_item(rec: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+    """把 cn_napstic 记录映射为雷达统一字段（title_cn 为主，英文保留）。"""
+    return {
+        "title": rec.get("title_cn") or rec.get("title_en") or "",
+        "title_en": rec.get("title_en") or "",
+        "abstract": rec.get("abstract_cn") or "",
+        "abstract_zh": rec.get("abstract_cn") or "",
+        "abstract_en": rec.get("abstract_en") or "",
+        "authors": rec.get("authors_cn") or [],
+        "venue": rec.get("journal_cn") or rec.get("journal_en") or "",
+        "doi": rec.get("doi") or "",
+        "url": rec.get("detail_url") or "",
+        "keywords": rec.get("keywords_cn") or [],
+        "source_id": rec.get("source_id") or "",
+        "year": rec.get("year") or "",
+        "published": rec.get("online_date") or rec.get("year") or "",
+        "source": source["name"],
+        "origin": rec.get("detail_url") or rec.get("source_id") or "",
+        "publication_type": "journal",
+        "venue_type": "journal",
+    }
+
+
 def clean_item(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "title": normalize_space(item.get("title")),
+        "title_en": normalize_space(item.get("title_en")),
         "authors": split_authors(item.get("authors")),
         "year": normalize_space(item.get("year")),
         "published": normalize_space(item.get("published")),
@@ -208,9 +235,11 @@ def clean_item(item: dict[str, Any]) -> dict[str, Any]:
         "url": normalize_space(item.get("url")),
         "abstract": normalize_space(item.get("abstract")),
         "abstract_zh": normalize_space(item.get("abstract_zh")),
+        "abstract_en": normalize_space(item.get("abstract_en")),
         "keywords": split_keywords(item.get("keywords")),
         "source": normalize_space(item.get("source")),
         "origin": normalize_space(item.get("origin")),
+        "source_id": normalize_space(item.get("source_id")),
         "is_oa": normalize_bool(item.get("is_oa")),
         "oa_url": normalize_space(item.get("oa_url")),
         "access_status": normalize_space(item.get("access_status")),

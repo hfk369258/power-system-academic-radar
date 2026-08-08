@@ -1,3 +1,4 @@
+import datetime as dt
 import importlib.util
 import http.client
 import json
@@ -242,6 +243,44 @@ class RadarStateTests(unittest.TestCase):
             delivered_items = write_mock.call_args.args[0]
             self.assertEqual({item["doi"] for item in delivered_items}, {"10.1/new-1", "10.1/new-2"})
             self.assertTrue({"doi:10.1/new-1", "doi:10.1/new-2"}.issubset(radar.read_state(state_path)))
+
+    def test_clean_item_keeps_chinese_literature_fields(self) -> None:
+        raw = {
+            "title_cn": "构网型储能系统研究",
+            "title_en": "Grid-Forming Energy Storage Research",
+            "abstract_cn": "中文摘要。",
+            "abstract_en": "English abstract.",
+            "authors_cn": ["张三"],
+            "journal_cn": "电网技术",
+            "doi": "10.13335/j.1000-3673.pst.2024.0001",
+            "detail_url": "https://search.napstic.cn/literature/periodical/010dwjs202401001",
+            "keywords_cn": ["构网型", "储能"],
+            "source_id": "dwjs202401001",
+            "year": "2024",
+            "online_date": "2025-05-08 02:01:04",
+        }
+        item = radar.clean_item(radar.napstic_to_item(raw, {"name": "中文检索(NAPSTIC)"}))
+
+        self.assertEqual(item["title"], "构网型储能系统研究")
+        self.assertEqual(item["title_en"], "Grid-Forming Energy Storage Research")
+        self.assertEqual(item["abstract"], "中文摘要。")
+        self.assertEqual(item["abstract_zh"], "中文摘要。")
+        self.assertEqual(item["abstract_en"], "English abstract.")
+        self.assertEqual(item["venue"], "电网技术")
+        self.assertEqual(item["doi"], "10.13335/j.1000-3673.pst.2024.0001")
+        self.assertEqual(item["url"], "https://search.napstic.cn/literature/periodical/010dwjs202401001")
+        self.assertEqual(item["source_id"], "dwjs202401001")
+        self.assertEqual(item["published"], "2025-05-08 02:01:04")
+        self.assertEqual(item["source"], "中文检索(NAPSTIC)")
+
+    def test_item_key_falls_back_to_source_id(self) -> None:
+        with_doi = {"doi": "10.1/x", "source_id": "abc", "title": "t"}
+        no_doi = {"source_id": "dwjs202401001", "title": "无 DOI 论文"}
+        no_id = {"title": "既无 DOI 也无 ID"}
+
+        self.assertTrue(radar.item_key(with_doi).startswith("doi:"))
+        self.assertTrue(radar.item_key(no_doi).startswith("sid:"))
+        self.assertTrue(radar.item_key(no_id).startswith("title:"))
 
 
 if __name__ == "__main__":
