@@ -66,7 +66,9 @@ NAPSTIC 记录 → `clean_item()` 映射：
 
 ### 期刊白名单
 
-`journal_filter` 启用时是硬门槛。三份模板的 `categories.chinese_ei` 需补全为 11 本（新增：中国电力、电力建设、华北电力大学学报、现代电力），保证 NAPSTIC 全部期刊可过白名单；`journal_filter_match` 为子串匹配，`华北电力大学学报(自然科学版)` 可命中 `华北电力大学学报`。
+`journal_filter` 启用时是硬门槛。三份模板的 `categories.chinese_ei` 需补全为 11 本（新增：中国电力、电力建设、华北电力大学学报、现代电力），保证 NAPSTIC 期刊目录通道全部可过白名单；`journal_filter_match` 为子串匹配，`华北电力大学学报(自然科学版)` 可命中 `华北电力大学学报`。
+
+**实测修正（2026-08-08）**：关键词检索通道覆盖全站点上万本中文期刊（实测 10 个关键词命中 11.8 万+），绝大多数期刊不在 `chinese_ei` 白名单内——若强加白名单，search 通道几乎永远输出 0 篇。因此 `napstic_search` 源条目增加显式开关 `bypass_journal_whitelist: true`（默认跳过期刊白名单，检索词本身已按研究方向约束；需严格白名单时可在 JSON 中改为 false）。`napstic_journals` 通道本身只抓白名单内的 11 本刊，无需该开关。
 
 ## 新抓取器
 

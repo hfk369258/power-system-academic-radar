@@ -729,34 +729,64 @@ def fetch_rss(config: dict[str, Any], source: dict[str, Any], since: dt.date, li
     return items[:limit]
 
 
+def napstic_query_terms(config: dict[str, Any], source: dict[str, Any]) -> list[str]:
+    """NAPSTIC 检索接口把空格分隔的词按 AND 处理，不支持 OR/AND 语法（实测 OR 词被忽略、多词合并后可能命中 0）。
+
+    auto_from_keywords 模式下把 `chinese` 组的每个关键词拆成独立查询；配置了 query_override 时原样作为单个查询。
+    """
+    query = source_query(config, source)
+    if not query:
+        return []
+    if (config.get("queries") or {}).get("auto_from_keywords") and not source.get("query_override"):
+        terms: list[str] = []
+        for raw in (config.get("keywords") or {}).get("chinese", []):
+            term = normalize_space(raw)
+            if term and term not in terms:
+                terms.append(term)
+        return terms
+    return [query]
+
+
 def fetch_napstic_search(config: dict[str, Any], source: dict[str, Any], since: dt.date, limit: int) -> list[dict[str, Any]]:
-    """按中文关键词检索 NAPSTIC（含网络首发），按 online_date 增量过滤。"""
+    """按 chinese 关键词组逐词检索 NAPSTIC（含网络首发），按 online_date 增量过滤。"""
     if cn_napstic is None:
         print(f"[warn] {source['name']} skipped: cn_napstic module not found", file=sys.stderr)
         return []
-    query = source_query(config, source)
-    if not query:
+    terms = napstic_query_terms(config, source)
+    if not terms:
         print(f"[warn] {source['name']} skipped: empty query", file=sys.stderr)
         return []
     size = max(1, int(source.get("size", 20)))
-    pages = max(1, int(source.get("pages", 0)) or -(-limit // size))
     delay = float(source.get("delay_seconds", 1.5))
     since_str = since.strftime("%Y-%m-%d") if since else ""
     records: list[dict[str, Any]] = []
     total = 0
-    try:
-        for page in range(1, pages + 1):
-            page_records, total = cn_napstic.search_literature(query, size=size, page=page, delay=delay)
+    for term in terms:
+        try:
+            page_records, term_total = cn_napstic.search_literature(term, size=size, page=1, delay=delay)
+            total += int(term_total)
             records.extend(page_records)
-            time.sleep(delay * 0.5)
-    except Exception as exc:  # noqa: BLE001
-        print(f"[warn] {source['name']} failed mid-search: {exc}", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[warn] {source['name']} term '{term}' failed: {exc}", file=sys.stderr)
+        time.sleep(delay * 0.5)
+    # 同一关键词族下多词可能命中同一篇：按 DOI/source_id 先去重
+    seen_keys: set[str] = set()
     items = []
+    bypass = bool(source.get("bypass_journal_whitelist", False))
     for rec in records:
+        doi = normalize_doi(rec.get("doi"))
+        rec_key = doi or normalize_space(rec.get("source_id"))
+        if rec_key:
+            if rec_key in seen_keys:
+                continue
+            seen_keys.add(rec_key)
         if since_str and rec.get("online_date") and rec["online_date"][:10] < since_str:
             continue
-        items.append(clean_item(napstic_to_item(rec, source)))
-    print(f"[info] {source['name']} '{query}': platform hit {total}, fetched {len(items)}", file=sys.stderr)
+        item = clean_item(napstic_to_item(rec, source))
+        if bypass:
+            item["bypass_journal_whitelist"] = True
+        items.append(item)
+    print(f"[info] {source['name']} terms={len(terms)}: platform hit {total}, fetched {len(items)}", file=sys.stderr)
     return items[:limit]
 
 
@@ -1115,6 +1145,9 @@ def journal_filter_match(item: dict[str, Any], config: dict[str, Any]) -> tuple[
     journal_filter = config.get("journal_filter") or {}
     if not journal_filter.get("enabled", False):
         return True, []
+    if item.get("bypass_journal_whitelist"):
+        # 部分数据源（如 NAPSTIC 中文检索）覆盖全网期刊，白名单无意义，由源配置显式跳过。
+        return True, ["bypass:journal-whitelist"]
 
     document_type = document_type_category(item)
     if document_type == "preprint":

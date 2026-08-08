@@ -134,9 +134,9 @@
                         "type":  "napstic_search",
                         "enabled":  true,
                         "max_results":  40,
-                        "pages":  2,
                         "size":  20,
-                        "delay_seconds":  1.5
+                        "delay_seconds":  1.5,
+                        "bypass_journal_whitelist":  true
                     },
                     {
                         "name":  "中文核心期刊目录(NAPSTIC)",

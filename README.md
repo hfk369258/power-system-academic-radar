@@ -79,7 +79,7 @@ powershell -ExecutionPolicy Bypass -File scripts\start_radar_ui.ps1
 
 - 数据来自「国家学术搜索」(search.napstic.cn)，由中信所(ISTIC)运营，期刊方自愿公开题录/摘要/DOI，非付费墙绕过；仅限个人科研低频使用，默认节流 1.5s。
 - 两种源类型（无需 API Key）：
-  - `napstic_search`（默认开启）：按 `keywords.chinese` 关键词组检索全部中文期刊，含网络首发（`online_date`）增量，数据最新；
+  - `napstic_search`（默认开启）：按 `keywords.chinese` 关键词组逐词检索全部中文期刊，含网络首发（`online_date`）增量，数据最新。该通道默认 `bypass_journal_whitelist: true`（检索词本身已按研究方向约束，全网期刊都算数；需严格白名单时可在 JSON 中改为 false）；
   - `napstic_journals`（默认关闭）：按 `journals` slug 列表逐刊抓最近 `months` 期，覆盖完整但滞后约 0.5~1.5 年；开启前请确认能接受其请求量。
 - 中文文献同样受 `journal_filter` 白名单约束，模板已内置 `chinese_ei` 11 本刊（可在控制台/JSON 中增删）。
 - 已知坑：中国电力期刊 DOI 注册在 ISTIC 中国DOI系统，**不在 Crossref**（Crossref 拿不到中文刊数据）；英文姊妹刊（CSEE JPES / PCMP / MPCE）为独立英文刊，仅覆盖中文刊约 5~10% 精华，完整跟踪中文论文请用 NAPSTIC。

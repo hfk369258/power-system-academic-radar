@@ -318,17 +318,60 @@ class RadarStateTests(unittest.TestCase):
         }
         stale = dict(fresh, title_cn="旧论文", source_id="stale1", online_date="2026-05-01 10:00:00")
         config = {"keywords": {"chinese": ["构网型"]}, "queries": {"auto_from_keywords": True}}
-        source = {"name": "中文检索(NAPSTIC)", "type": "napstic_search", "size": 20, "pages": 2, "delay_seconds": 0}
+        source = {"name": "中文检索(NAPSTIC)", "type": "napstic_search", "size": 20, "delay_seconds": 0}
 
         with mock.patch.object(
-            radar.cn_napstic, "search_literature", side_effect=[([fresh, stale], 88), ([], 0)]
+            radar.cn_napstic, "search_literature", return_value=([fresh, stale], 580)
+        ) as call_mock:
+            items = radar.fetch_napstic_search(config, source, dt.date(2026, 7, 1), 40)
+
+        self.assertEqual(call_mock.call_count, 1)
+        self.assertEqual(call_mock.call_args.args[0], "构网型")
+        self.assertEqual([item["title"] for item in items], ["构网型变流器控制"])
+        self.assertEqual(items[0]["source"], "中文检索(NAPSTIC)")
+
+    def test_napstic_search_dedupes_records_across_terms(self) -> None:
+        shared = {
+            "source_id": "shared1",
+            "title_cn": "储能容量配置",
+            "abstract_cn": "摘要",
+            "journal_cn": "电力自动化设备",
+            "year": "2026",
+            "online_date": "2026-08-01 10:00:00",
+            "detail_url": "https://search.napstic.cn/literature/periodical/010x001",
+        }
+        config = {"keywords": {"chinese": ["构网型", "储能"]}, "queries": {"auto_from_keywords": True}}
+        source = {"name": "中文检索(NAPSTIC)", "type": "napstic_search", "size": 20, "delay_seconds": 0}
+
+        with mock.patch.object(
+            radar.cn_napstic, "search_literature", side_effect=[([shared], 100), ([shared], 200)]
         ) as call_mock:
             items = radar.fetch_napstic_search(config, source, dt.date(2026, 7, 1), 40)
 
         self.assertEqual(call_mock.call_count, 2)
-        self.assertEqual(call_mock.call_args.args[0], "构网型")
-        self.assertEqual([item["title"] for item in items], ["构网型变流器控制"])
-        self.assertEqual(items[0]["source"], "中文检索(NAPSTIC)")
+        self.assertEqual([call_mock.call_args_list[i].args[0] for i in range(2)], ["构网型", "储能"])
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["title"], "储能容量配置")
+
+    def test_napstic_query_terms_uses_override_when_auto_disabled(self) -> None:
+        config = {"keywords": {"chinese": ["构网型"]}, "queries": {"auto_from_keywords": False}}
+        terms = radar.napstic_query_terms(
+            config, {"type": "napstic_search", "query_override": "构网型/储能"}
+        )
+        self.assertEqual(terms, ["构网型/储能"])
+
+    def test_journal_filter_respects_bypass_flag(self) -> None:
+        config = {
+            "journal_filter": {
+                "enabled": True,
+                "allow_missing_venue": False,
+                "allowed_venues": ["IEEE Transactions on Power Systems"],
+            }
+        }
+        outside = {"venue": "分布式能源", "publication_type": "journal"}
+        self.assertFalse(radar.journal_filter_match(outside, config)[0])
+        bypassed = dict(outside, bypass_journal_whitelist=True)
+        self.assertTrue(radar.journal_filter_match(bypassed, config)[0])
 
     def test_napstic_search_degrades_when_module_missing(self) -> None:
         with mock.patch.object(radar, "cn_napstic", None):
