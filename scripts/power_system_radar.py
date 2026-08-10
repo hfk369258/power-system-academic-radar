@@ -2589,6 +2589,38 @@ def maybe_notify(config: dict[str, Any], md_path: Path, json_path: Path, html_pa
     return enabled_count > 0 and delivered_count == enabled_count
 
 
+def append_history(
+    output_dir: Path,
+    config: dict[str, Any],
+    document_type: str | None,
+    items: list[dict[str, Any]],
+    delivered: bool,
+    md_path: Path,
+    json_path: Path,
+    html_path: Path,
+    dash_path: Path,
+) -> None:
+    """追加一条运行记录到 history.jsonl，供图形控制台「发送记录」面板读取。"""
+    try:
+        profile = config.get("profile") or {}
+        entry = {
+            "timestamp": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+            "profile": str(profile.get("name") or ""),
+            "document_type": document_type or "",
+            "records": len(items),
+            # delivered=全渠道送达；items 为空时只生成空日报，不算失败。
+            "status": "delivered" if delivered else ("skipped" if not items else "failed"),
+            "digest": md_path.name,
+            "dashboard": dash_path.name,
+            "records_file": json_path.name,
+            "html": html_path.name,
+        }
+        with (output_dir / "history.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        print(f"[warn] could not append history: {exc}", file=sys.stderr)
+
+
 def send_email_digest(email_config: dict[str, Any], digest: str, md_path: Path, json_path: Path, html_body: str, dash_path: Path, count: int) -> bool:
     host = env_value(email_config.get("smtp_host_env", "RADAR_SMTP_HOST"))
     user = env_value(email_config.get("smtp_user_env", "RADAR_SMTP_USER"))
@@ -2785,6 +2817,9 @@ def main() -> int:
                 write_state(state_path, state_keys)
             elif items:
                 print("[warn] state not updated because no enabled notification completed successfully", file=sys.stderr)
+        append_history(
+            md_path.parent, config, args.document_type, items, delivered, md_path, json_path, html_path, dash_path
+        )
     print(f"records: {len(items)}")
     print(f"digest: {md_path}")
     print(f"html:  {html_path}")

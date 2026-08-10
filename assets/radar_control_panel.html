@@ -101,6 +101,20 @@
     .schedule-top small { color: var(--muted); }
     .schedule-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
     .schedule-card.disabled .schedule-fields { opacity: .45; pointer-events: none; }
+    .history-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+    .history-tools select { width: auto; min-width: 150px; }
+    .history-tools small { color: var(--muted); }
+    .history-list { display: grid; gap: 8px; max-height: 460px; overflow: auto; padding-right: 4px; }
+    .history-row { display: grid; grid-template-columns: 150px 92px 64px 128px 1fr; gap: 8px; align-items: center; padding: 9px 12px; border: 1px solid var(--line); border-radius: 11px; background: #fbfcfb; }
+    .history-row .time { color: var(--muted); font-size: 12px; }
+    .history-row .doc { font-weight: 600; }
+    .history-row .digest { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; text-align: center; }
+    .badge.ok { color: var(--brand); background: var(--brand-soft); }
+    .badge.skip { color: #8a6d1d; background: #f7f0dc; }
+    .badge.fail { color: var(--danger); background: #fbecec; }
+    .badge.legacy { color: var(--muted); background: #eef1ef; }
+    @media (max-width: 900px) { .history-row { grid-template-columns: 1fr 1fr; } .history-row .digest { grid-column: span 2; } }
     [hidden] { display: none !important; }
     .empty { padding: 16px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 10px; }
     .toast { position: fixed; right: 22px; bottom: 22px; z-index: 100; max-width: min(420px, calc(100vw - 44px)); padding: 12px 15px; border-radius: 12px; color: #fff; background: #203129; box-shadow: var(--shadow); opacity: 0; transform: translateY(10px); pointer-events: none; transition: .2s; }
@@ -223,6 +237,20 @@
           <div class="section-actions"><button class="btn primary" id="saveCredentialsBtn">保存本机接口与账号</button><button class="btn" id="testLlmBtn">测试模型连接</button></div>
           <div id="llmTestResult" class="test-result" hidden></div>
           <p class="hint">内容保存在插件目录的本机环境文件中，并自动生成备份。页面仅监听 127.0.0.1，不会把这些值上传到外部服务。</p>
+        </div>
+      </article>
+
+      <article class="panel wide" data-panel="history">
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动发送记录">⠿</button><div><h2>发送记录</h2><small>各方案每次运行的日报与投递结果</small></div></div></header>
+        <div class="panel-body">
+          <div class="history-tools">
+            <select id="historyType" aria-label="按文献类型过滤">
+              <option value="">全部类型</option><option value="journal">期刊论文</option><option value="preprint">预印本</option><option value="conference">会议论文</option>
+            </select>
+            <button class="btn primary" id="refreshHistoryBtn">刷新记录</button>
+            <small id="historySummary"></small>
+          </div>
+          <div class="history-list" id="historyList"></div>
         </div>
       </article>
     </section>
@@ -569,6 +597,45 @@
     }
     function moveEmail(from, to) { if (from === null || from === to) return; const [item] = state.data.email.recipients.splice(from, 1); state.data.email.recipients.splice(to, 0, item); renderEmails(); changed(); }
 
+    const historyTypeLabels = { journal: '期刊论文', preprint: '预印本', conference: '会议论文' };
+    const historyStatus = {
+      delivered: ['ok', '✅ 已送达'], skipped: ['skip', '⏭ 无记录跳过'], failed: ['fail', '❌ 未送达'], legacy: ['legacy', '📄 历史日报']
+    };
+    function formatHistoryTime(value) {
+      const date = new Date(value);
+      if (!value || Number.isNaN(date.getTime())) return '';
+      const pad = n => String(n).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+    async function loadHistory() {
+      const list = $('historyList'); const summary = $('historySummary');
+      const type = $('historyType').value;
+      const url = `/api/history?limit=120${type ? `&type=${encodeURIComponent(type)}` : ''}`;
+      list.replaceChildren(); summary.textContent = '正在读取…';
+      try {
+        const result = await api(url);
+        const entries = Array.isArray(result.history) ? result.history : [];
+        summary.textContent = `共 ${entries.length} 条记录`;
+        if (!entries.length) {
+          const empty = document.createElement('div'); empty.className = 'empty';
+          empty.textContent = type ? '该类型还没有运行记录' : '还没有运行记录。保存计划并应用后，每次任务运行都会出现在这里。';
+          list.append(empty); return;
+        }
+        entries.forEach(entry => {
+          const row = document.createElement('div'); row.className = 'history-row';
+          const time = document.createElement('span'); time.className = 'time'; time.textContent = formatHistoryTime(entry.timestamp) || entry.timestamp;
+          const doc = document.createElement('span'); doc.className = 'doc'; doc.textContent = historyTypeLabels[entry.document_type] || entry.document_type || '全部';
+          const records = document.createElement('span'); records.textContent = `${entry.records} 篇`;
+          const badge = document.createElement('span'); const [kind, text] = historyStatus[entry.status] || ['legacy', entry.status]; badge.className = `badge ${kind}`; badge.textContent = text;
+          const digest = document.createElement('span'); digest.className = 'digest'; digest.textContent = entry.digest || '(无日报)';
+          row.append(time, doc, records, badge, digest); list.append(row);
+        });
+      } catch (error) {
+        summary.textContent = '';
+        const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = chineseError(error, '发送记录读取失败'); list.append(empty);
+      }
+    }
+
     function renderCredentials() {
       const grid = $('credentialGrid'); grid.replaceChildren();
       credentialFields.forEach(([key,label]) => { const field=document.createElement('label'); field.className='field'; const title=document.createTextNode(label); const input=document.createElement('input'); input.type='text'; input.value=state.data.credentials?.[key] || ''; input.autocomplete='off'; input.dataset.envKey=key; input.setAttribute('aria-label',label); input.addEventListener('input',()=>{state.data.credentials[key]=input.value;credentialsChanged();}); field.append(title,input); grid.append(field); });
@@ -595,11 +662,12 @@
     $('addEmailBtn').addEventListener('click', () => { state.data.email.recipients.push(''); state.data.email.uses_environment_fallback = false; renderEmails(); changed(); setTimeout(() => $('emailList').querySelector('.email-row:last-child input')?.focus(), 0); });
     $('saveBtn').addEventListener('click', save); $('reloadBtn').addEventListener('click', () => { if (confirmLoss()) load(); });
     $('saveCredentialsBtn').addEventListener('click', saveCredentials); $('testLlmBtn').addEventListener('click', testLlm); $('applyScheduleBtn').addEventListener('click', applySchedule); $('stopScheduleBtn').addEventListener('click', stopSchedule);
+    $('historyType').addEventListener('change', loadHistory); $('refreshHistoryBtn').addEventListener('click', loadHistory);
     $('restoreBtn').addEventListener('click', async () => { if (!confirm('恢复到上一次保存前的配置？当前内容将被替换。')) return; try { const result = await api(`/api/restore?profile=${state.profile}`, { method: 'POST', body: '{}' }); state.data = normalizeData(clone(result.data), state.profile); render(); setDirty(false); toast(result.message); } catch (error) { toast(chineseError(error, '配置恢复失败'), true); } });
     window.addEventListener('error', event => { event.preventDefault(); toast(chineseError(event.error || event.message, '页面运行失败，请重新启动控制台'), true); });
     window.addEventListener('unhandledrejection', event => { event.preventDefault(); toast(chineseError(event.reason, '操作失败，请重试'), true); });
     window.addEventListener('beforeunload', e => { if (state.dirty || state.credentialsDirty) { e.preventDefault(); e.returnValue = ''; } });
-    setupPanels(); loadProfiles();
+    setupPanels(); loadProfiles(); loadHistory();
   </script>
 </body>
 </html>

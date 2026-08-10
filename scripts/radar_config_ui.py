@@ -177,7 +177,20 @@ def chinese_exception_message(exc: Exception) -> str:
 
 
 def _read_json(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as fh:
+        return json.load(fh)
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _stamp_to_iso(stamp: str) -> str:
+    """把日报文件名里的 20260810_102258_277244 还原为 2026-08-10T10:22:58。"""
+    digits = stamp.replace("_", "")
+    if len(digits) < 14 or not digits[:14].isdigit():
+        return ""
+    return (
+        f"{digits[0:4]}-{digits[4:6]}-{digits[6:8]}"
+        f"T{digits[8:10]}:{digits[10:12]}:{digits[12:14]}"
+    )
 
 
 def _atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
@@ -662,6 +675,78 @@ class ConfigStore:
                 ]
             return deepcopy(self._read_registry()["profiles"])
 
+    def history(
+        self, profile: str | None = None, document_type: str | None = None, limit: int = 200
+    ) -> list[dict[str, Any]]:
+        """读取各方案 running 的日报与投递记录（outputs/**/history.jsonl），
+        并兼容升级前的日报文件（status=legacy）。按时间倒序。"""
+        self._ensure_initialized()
+        try:
+            safe_limit = max(0, min(int(limit), 500))
+        except (TypeError, ValueError):
+            safe_limit = 200
+        ids = [self._validate_profile_id(profile)] if profile else list(self.profile_files)
+        entries: list[dict[str, Any]] = []
+        seen_digests: set[str] = set()
+        for pid in ids:
+            outputs = self._profile_dir(pid) / "outputs"
+            if not outputs.is_dir():
+                continue
+            for jsonl in sorted(outputs.rglob("history.jsonl")):
+                for line in jsonl.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(row, dict):
+                        continue
+                    entry = {
+                        "profile": pid,
+                        "timestamp": str(row.get("timestamp") or ""),
+                        "document_type": str(row.get("document_type") or jsonl.parent.name),
+                        "records": int(row.get("records") or 0),
+                        "status": str(row.get("status") or "failed"),
+                        "digest": str(row.get("digest") or ""),
+                        "dashboard": str(row.get("dashboard") or ""),
+                        "records_file": str(row.get("records_file") or ""),
+                        "html": str(row.get("html") or ""),
+                    }
+                    entries.append(entry)
+                    if entry["digest"]:
+                        seen_digests.add(entry["digest"])
+            for md in sorted(outputs.rglob("digest_*.md")):
+                if md.name in seen_digests:
+                    continue
+                stamp = md.stem.removeprefix("digest_")
+                record_file = md.parent / f"records_{stamp}.json"
+                records = 0
+                if record_file.exists():
+                    try:
+                        data = json.loads(record_file.read_text(encoding="utf-8"))
+                        records = len(data) if isinstance(data, list) else 0
+                    except (json.JSONDecodeError, OSError):
+                        records = 0
+                entries.append(
+                    {
+                        "profile": pid,
+                        "timestamp": _stamp_to_iso(stamp),
+                        "document_type": md.parent.name,
+                        "records": records,
+                        "status": "legacy",
+                        "digest": md.name,
+                        "dashboard": f"dashboard_{stamp}.html",
+                        "records_file": record_file.name,
+                        "html": f"digest_{stamp}.html",
+                    }
+                )
+        if document_type:
+            entries = [entry for entry in entries if entry["document_type"] == document_type]
+        entries.sort(key=lambda entry: entry["timestamp"], reverse=True)
+        return entries[:safe_limit]
+
     @staticmethod
     def _validate_profile_name(name: Any) -> str:
         value = str(name).strip()
@@ -984,6 +1069,16 @@ class RadarUIHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "profiles": self.store.list_profiles(),
                     "max_profiles": MAX_PROFILES,
+                })
+            elif parsed.path == "/api/history":
+                query = parse_qs(parsed.query)
+                self._json(HTTPStatus.OK, {
+                    "ok": True,
+                    "history": self.store.history(
+                        profile=query.get("profile", [None])[0],
+                        document_type=query.get("type", [None])[0],
+                        limit=int((query.get("limit") or ["200"])[0]),
+                    ),
                 })
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "页面不存在"})
