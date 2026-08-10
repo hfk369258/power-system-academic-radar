@@ -88,6 +88,9 @@
     .email-row { display: grid; grid-template-columns: auto 1fr auto; gap: 7px; align-items: center; }
     .email-row .grip { color: var(--muted); cursor: grab; }
     .hint { margin: 9px 0 0; color: var(--muted); font-size: 12px; }
+    .test-result { margin: 10px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; color: var(--muted); background: var(--card); white-space: pre-wrap; }
+    .test-result.ok { color: var(--brand); border-color: var(--brand); background: var(--brand-soft); }
+    .test-result.err { color: var(--danger); border-color: var(--danger); background: #fbecec; }
     .section-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
     .credential-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
     .credential-grid .span-2 { grid-column: span 2; }
@@ -196,12 +199,29 @@
         <div class="panel-body">
           <div class="switch-row"><div class="switch-copy"><strong>启用 DeepSeek 解读</strong><span>摘要翻译、文章概括和每日简报</span></div><label class="switch"><input id="llmEnabled" type="checkbox"><span></span></label></div>
           <div class="credential-grid" style="margin:14px 0">
-            <label class="field">模型服务商<input id="llmProvider" type="text"></label>
+            <label class="field span-2">模型来源<select id="llmProvider">
+              <optgroup label="国内官方">
+                <option value="deepseek">DeepSeek 官方</option><option value="bailian">阿里云百炼</option><option value="zhipu">智谱 GLM</option><option value="kimi">月之暗面 Kimi</option><option value="volcengine">火山方舟</option><option value="qianfan">百度千帆</option><option value="hunyuan">腾讯混元</option><option value="minimax">MiniMax</option><option value="mimo">小米 MiMo</option><option value="stepfun">阶跃星辰 StepFun</option><option value="siliconflow">硅基流动</option><option value="modelscope">魔搭 ModelScope</option>
+              </optgroup>
+              <optgroup label="国际官方">
+                <option value="openai">OpenAI</option><option value="anthropic">Anthropic Claude</option><option value="gemini">Google Gemini</option><option value="grok">xAI Grok</option><option value="groq">Groq</option><option value="mistral">Mistral</option><option value="openrouter">OpenRouter</option><option value="nvidia">NVIDIA NIM</option><option value="novita">Novita AI</option>
+              </optgroup>
+              <optgroup label="聚合/中转">
+                <option value="opencode">OpenCode Zen</option><option value="apikeyfun">APIKEY.FUN</option><option value="aihubmix">AiHubMix</option><option value="cherryin">CherryIN</option><option value="therouter">TheRouter</option><option value="longcat">Longcat</option>
+              </optgroup>
+              <optgroup label="本地/自建">
+                <option value="ollama">Ollama 本地</option><option value="lmstudio">LM Studio 本地</option><option value="oneapi">通用 OpenAI 兼容网关</option>
+              </optgroup>
+              <optgroup label="其他">
+                <option value="custom">自定义</option>
+              </optgroup>
+            </select></label>
             <label class="field">模型名称<input id="llmModel" type="text"></label>
-            <label class="field span-2">模型 API 地址<input id="llmBaseUrl" type="text"></label>
+            <label class="field span-2">模型 API 地址<input id="llmBaseUrl" type="text" placeholder="选择来源后自动填写,可再手动改"></label>
           </div>
           <div class="credential-grid" id="credentialGrid"></div>
-          <div class="section-actions"><button class="btn primary" id="saveCredentialsBtn">保存本机接口与账号</button></div>
+          <div class="section-actions"><button class="btn primary" id="saveCredentialsBtn">保存本机接口与账号</button><button class="btn" id="testLlmBtn">测试模型连接</button></div>
+          <div id="llmTestResult" class="test-result" hidden></div>
           <p class="hint">内容保存在插件目录的本机环境文件中，并自动生成备份。页面仅监听 127.0.0.1，不会把这些值上传到外部服务。</p>
         </div>
       </article>
@@ -220,6 +240,51 @@
       ['RADAR_SMTP_USER','SMTP 登录账号'], ['RADAR_SMTP_PASSWORD','SMTP 密码/授权码'],
       ['RADAR_EMAIL_FROM','发件邮箱'], ['RADAR_EMAIL_TO','环境变量备用收件人（逗号分隔）']
     ];
+    const llmSources = {
+      deepseek: { name: 'DeepSeek 官方', base_url: 'https://api.deepseek.com/chat/completions', model: 'deepseek-v4-flash' },
+      bailian: { name: '阿里云百炼', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'deepseek-v3' },
+      zhipu: { name: '智谱 GLM', base_url: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', model: 'glm-5.1' },
+      kimi: { name: '月之暗面 Kimi', base_url: 'https://api.moonshot.cn/v1/chat/completions', model: 'kimi-k2' },
+      volcengine: { name: '火山方舟', base_url: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions', model: 'doubao-seed-2-1-pro-260628' },
+      qianfan: { name: '百度千帆', base_url: 'https://qianfan.baidubce.com/v2/chat/completions', model: 'ernie-4.5-8k' },
+      hunyuan: { name: '腾讯混元', base_url: 'https://api.hunyuan.cloud.tencent.com/v1/chat/completions', model: 'hunyuan-t1' },
+      minimax: { name: 'MiniMax', base_url: 'https://api.minimaxi.com/v1/chat/completions', model: 'MiniMax-M2.7' },
+      mimo: { name: '小米 MiMo', base_url: 'https://api.xiaomimimo.com/v1/chat/completions', model: 'mimo-v2.5' },
+      stepfun: { name: '阶跃星辰 StepFun', base_url: 'https://api.stepfun.com/v1/chat/completions', model: 'step-3.5-flash' },
+      siliconflow: { name: '硅基流动', base_url: 'https://api.siliconflow.cn/v1/chat/completions', model: 'deepseek-ai/DeepSeek-V3' },
+      modelscope: { name: '魔搭 ModelScope', base_url: 'https://api-inference.modelscope.cn/v1/chat/completions', model: 'ZhipuAI/GLM-5.1' },
+      openai: { name: 'OpenAI', base_url: 'https://api.openai.com/v1/chat/completions', model: 'gpt-5.2' },
+      anthropic: { name: 'Anthropic Claude', base_url: 'https://api.anthropic.com/v1/chat/completions', model: 'claude-sonnet-5' },
+      gemini: { name: 'Google Gemini', base_url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', model: 'gemini-3.6-flash' },
+      grok: { name: 'xAI Grok', base_url: 'https://api.x.ai/v1/chat/completions', model: 'grok-4' },
+      groq: { name: 'Groq', base_url: 'https://api.groq.com/openai/v1/chat/completions', model: 'llama-3.3-70b-versatile' },
+      mistral: { name: 'Mistral', base_url: 'https://api.mistral.ai/v1/chat/completions', model: 'mistral-large-latest' },
+      openrouter: { name: 'OpenRouter', base_url: 'https://openrouter.ai/api/v1/chat/completions', model: 'deepseek/deepseek-v3' },
+      nvidia: { name: 'NVIDIA NIM', base_url: 'https://integrate.api.nvidia.com/v1/chat/completions', model: 'meta/llama-3.3-70b-instruct' },
+      novita: { name: 'Novita AI', base_url: 'https://api.novita.ai/openai/v1/chat/completions', model: 'deepseek/deepseek-v3' },
+      opencode: { name: 'OpenCode Zen', base_url: 'https://opencode.ai/zen/go/v1/chat/completions', model: 'deepseek-v4-flash' },
+      apikeyfun: { name: 'APIKEY.FUN', base_url: 'https://api.apikey.fun/v1/chat/completions', model: 'gpt-5.6-sol' },
+      aihubmix: { name: 'AiHubMix', base_url: 'https://aihubmix.com/v1/chat/completions', model: 'deepseek-chat' },
+      cherryin: { name: 'CherryIN', base_url: 'https://open.cherryin.net/v1/chat/completions', model: 'deepseek-v3' },
+      therouter: { name: 'TheRouter', base_url: 'https://api.therouter.ai/v1/chat/completions', model: 'deepseek-chat' },
+      longcat: { name: 'Longcat', base_url: 'https://api.longcat.chat/openai/v1/chat/completions', model: 'LongCat-2.0' },
+      ollama: { name: 'Ollama 本地', base_url: 'http://localhost:11434/v1/chat/completions', model: 'llama3.1' },
+      lmstudio: { name: 'LM Studio 本地', base_url: 'http://localhost:1234/v1/chat/completions', model: '' },
+      oneapi: { name: '通用 OpenAI 兼容网关', base_url: 'http://localhost:3000/v1/chat/completions', model: '' },
+      custom: { name: '自定义', base_url: '', model: '' }
+    };
+    function applyLlmSource(force) {
+      const sel = $('llmProvider'); const src = llmSources[sel.value] || llmSources.custom;
+      if (force || !$('llmBaseUrl').value.trim() || !$('llmModel').value.trim()) {
+        $('llmBaseUrl').value = src.base_url; $('llmModel').value = src.model;
+      }
+      changed();
+    }
+    function syncLlmProviderSelect(value) {
+      const sel = $('llmProvider');
+      if (value in llmSources) sel.value = value;
+      else sel.value = 'custom';
+    }
     const scheduleTypes = [
       ['journal','期刊论文','仅推送期刊文章'],
       ['preprint','预印本','arXiv、posted content 等'],
@@ -367,6 +432,22 @@
         state.data.credentials = clone(result.data.values); state.data.credentials_revision = result.data.revision; state.credentialsDirty = false; refreshDirtyStatus(); toast('本机接口与账号已保存'); return true;
       } catch (error) { toast(chineseError(error, '本机接口与账号保存失败'), true); return false; }
     }
+    async function testLlm() {
+      const btn = $('testLlmBtn'); const result = $('llmTestResult');
+      result.hidden = false; result.className = 'test-result'; result.textContent = '正在请求模型，请稍候…';
+      btn.disabled = true; btn.textContent = '测试中…';
+      try {
+        const keyInput = $('credentialGrid').querySelector('[data-env-key="DEEPSEEK_API_KEY"]');
+        const apiKey = (keyInput && keyInput.value.trim()) || '';
+        const body = { model: $('llmModel').value.trim(), base_url: $('llmBaseUrl').value.trim(), api_key: apiKey };
+        const res = await api(`/api/llm/test?profile=${encodeURIComponent(state.profile)}`, { method: 'POST', body: JSON.stringify(body) });
+        result.className = 'test-result ok'; result.textContent = `✅ 连接成功：${res.data.model}（${res.data.latency_ms}ms）\n服务端回复：${res.data.reply || '(空)'}`;
+      } catch (error) {
+        result.className = 'test-result err'; result.textContent = `❌ ${chineseError(error, '连接失败')}`;
+      } finally {
+        btn.disabled = false; btn.textContent = '测试模型连接';
+      }
+    }
     async function applySchedule() {
       if (!await save()) return;
       try { const result = await api(`/api/schedule/apply?profile=${state.profile}`, {method:'POST',body:'{}'}); const active = Object.values(result.data.schedules || {}).filter(item => item.enabled).length; toast(`${result.message}：已启用 ${active} 类`); }
@@ -387,7 +468,7 @@
       $('lookback').value = d.profile.lookback_days;
       $('backfill').value = d.profile.backfill_lookback_days; $('candidateLimit').value = d.profile.candidate_results_per_source;
       $('journalEnabled').checked = d.journal_filter.enabled; $('autoQuery').checked = d.auto_query;
-      $('llmEnabled').checked = d.llm.enabled; $('llmProvider').value = d.llm.provider; $('llmModel').value = d.llm.model; $('llmBaseUrl').value = d.llm.base_url;
+      $('llmEnabled').checked = d.llm.enabled; syncLlmProviderSelect(d.llm.provider); $('llmModel').value = d.llm.model; $('llmBaseUrl').value = d.llm.base_url;
       $('emailEnabled').checked = d.email.enabled; $('subjectPrefix').value = d.email.subject_prefix; $('smtpSecurity').value = d.email.security;
       renderProfilePicker();
       renderSchedules(); renderGroups(); renderSources(); renderEmails(); renderCredentials();
@@ -490,7 +571,7 @@
 
     function renderCredentials() {
       const grid = $('credentialGrid'); grid.replaceChildren();
-      credentialFields.forEach(([key,label]) => { const field=document.createElement('label'); field.className='field'; const title=document.createTextNode(label); const input=document.createElement('input'); input.type='text'; input.value=state.data.credentials?.[key] || ''; input.autocomplete='off'; input.setAttribute('aria-label',label); input.addEventListener('input',()=>{state.data.credentials[key]=input.value;credentialsChanged();}); field.append(title,input); grid.append(field); });
+      credentialFields.forEach(([key,label]) => { const field=document.createElement('label'); field.className='field'; const title=document.createTextNode(label); const input=document.createElement('input'); input.type='text'; input.value=state.data.credentials?.[key] || ''; input.autocomplete='off'; input.dataset.envKey=key; input.setAttribute('aria-label',label); input.addEventListener('input',()=>{state.data.credentials[key]=input.value;credentialsChanged();}); field.append(title,input); grid.append(field); });
     }
 
     function setupPanels() {
@@ -507,12 +588,13 @@
     $('profileSelect').addEventListener('change', () => { const next=$('profileSelect').value; if (next !== state.profile && confirmLoss()) { state.profile=next; load(next); } else $('profileSelect').value=state.profile; });
     $('addProfileBtn').addEventListener('click', () => openProfileEditor('create')); $('renameProfileBtn').addEventListener('click', () => openProfileEditor('rename')); $('deleteProfileBtn').addEventListener('click', deleteProfile);
     $('confirmProfileEditBtn').addEventListener('click', saveProfileEdit); $('cancelProfileEditBtn').addEventListener('click', closeProfileEditor); $('profileNameInput').addEventListener('keydown', event => { if (event.key === 'Enter') saveProfileEdit(); if (event.key === 'Escape') closeProfileEditor(); });
-    ['dailyTargetEn','dailyTargetZh','backfillEnabled','lookback','backfill','candidateLimit','journalEnabled','autoQuery','llmEnabled','llmProvider','llmModel','llmBaseUrl','emailEnabled','subjectPrefix','smtpSecurity'].forEach(id => $(id).addEventListener('input', changed));
+    ['dailyTargetEn','dailyTargetZh','backfillEnabled','lookback','backfill','candidateLimit','journalEnabled','autoQuery','llmEnabled','llmModel','llmBaseUrl','emailEnabled','subjectPrefix','smtpSecurity'].forEach(id => $(id).addEventListener('input', changed));
+    $('llmProvider').addEventListener('change', () => applyLlmSource(true));
     $('keywordSearch').addEventListener('input', renderGroups);
     $('addGroupBtn').addEventListener('click', () => { let i = 1; let name = `new_group_${i}`; const names = new Set(state.data.keyword_groups.map(x => x.name)); while (names.has(name)) name = `new_group_${++i}`; state.data.keyword_groups.push({ name, terms: [] }); renderGroups(); changed(); });
     $('addEmailBtn').addEventListener('click', () => { state.data.email.recipients.push(''); state.data.email.uses_environment_fallback = false; renderEmails(); changed(); setTimeout(() => $('emailList').querySelector('.email-row:last-child input')?.focus(), 0); });
     $('saveBtn').addEventListener('click', save); $('reloadBtn').addEventListener('click', () => { if (confirmLoss()) load(); });
-    $('saveCredentialsBtn').addEventListener('click', saveCredentials); $('applyScheduleBtn').addEventListener('click', applySchedule); $('stopScheduleBtn').addEventListener('click', stopSchedule);
+    $('saveCredentialsBtn').addEventListener('click', saveCredentials); $('testLlmBtn').addEventListener('click', testLlm); $('applyScheduleBtn').addEventListener('click', applySchedule); $('stopScheduleBtn').addEventListener('click', stopSchedule);
     $('restoreBtn').addEventListener('click', async () => { if (!confirm('恢复到上一次保存前的配置？当前内容将被替换。')) return; try { const result = await api(`/api/restore?profile=${state.profile}`, { method: 'POST', body: '{}' }); state.data = normalizeData(clone(result.data), state.profile); render(); setDirty(false); toast(result.message); } catch (error) { toast(chineseError(error, '配置恢复失败'), true); } });
     window.addEventListener('error', event => { event.preventDefault(); toast(chineseError(event.error || event.message, '页面运行失败，请重新启动控制台'), true); });
     window.addEventListener('unhandledrejection', event => { event.preventDefault(); toast(chineseError(event.reason, '操作失败，请重试'), true); });

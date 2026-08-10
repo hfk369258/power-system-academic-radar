@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.3.0 — 多模型来源 + LLM 连接测试 + 无窗口启动（2026-08-10）
+
+### 新增：模型来源下拉（31 项）
+- 「模型来源」下拉扩充至 31 项，按 国内官方 / 国际官方 / 聚合中转 / 本地自建 / 自定义 分组；
+- 选择来源后自动填写 API 地址与模型名（含 `chat/completions` 后缀），仅需填写 API Key；
+- 适配 OpenAI 兼容网关（DeepSeek、智谱、通义、Kimi、Gemini、Ollama、OneAPI 等）。
+
+### 新增：测试模型连接
+- 配置台新增「测试模型连接」按钮与 `/api/llm/test` 接口；
+- 兼容推理模型（`content` 为空时读取 `reasoning_content`），超时 15s；
+- 错误分类提示：401/403（Key 无效或无权访问）、402（余额不足）、404（地址/模型不存在）、429（限流）、连接超时等。
+
+### 修复：启动不再弹出 PowerShell 窗口
+- PyInstaller 改为 `--noconsole`（GUI 子系统）打包；
+- 计划任务参数加 `-WindowStyle Hidden`；
+- 控制台内 PowerShell 子进程统一加 `CREATE_NO_WINDOW` 标志。
+
+### 增强
+- 控制台 UI 日志重定向至 `logs/console-ui.log`，便于排查；
+- 抓取结果为空时跳过通知发送，避免把抓取失败误报为"今日无文献"。
+
+### 安全
+- `.gitignore` 补充 `_internal/` 与 `*.exe`，构建产物与个人凭据均不入库。
+
 ## v0.2.0 — 中文文献雷达 + 中英分区 + 桌面配置台（2026-08-09）
 
 ### 新增：中文文献数据源（NAPSTIC）

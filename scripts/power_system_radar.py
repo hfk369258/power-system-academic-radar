@@ -2544,6 +2544,12 @@ def print_dry_run(config: dict[str, Any]) -> None:
 
 
 def maybe_notify(config: dict[str, Any], md_path: Path, json_path: Path, html_path: Path, dash_path: Path, items: list[dict[str, Any]]) -> bool:
+    # 空结果不应被当作正常日报发送。网络代理失效、数据源限流或接口连接失败时，
+    # 抓取阶段会返回空列表；如果继续发送，收件人会把“抓取失败”误解为“今天没有论文”。
+    # 报告文件仍会保留在本地，待网络恢复后可重新运行或手动重发。
+    if not items:
+        print("[warn] no records; notification skipped", file=sys.stderr)
+        return False
     notifications = config.get("notifications") or {}
     digest = md_path.read_text(encoding="utf-8")
     html_body = html_path.read_text(encoding="utf-8") if html_path.exists() else ""

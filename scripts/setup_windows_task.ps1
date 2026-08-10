@@ -74,6 +74,7 @@ $time = [datetime]::ParseExact($DailyTime, "HH:mm", [Globalization.CultureInfo]:
 $taskArgs = @(
     "-NoProfile",
     "-ExecutionPolicy", "Bypass",
+    "-WindowStyle", "Hidden",
     "-File", (Quote-TaskArgument $RunScript),
     "-PluginRoot", (Quote-TaskArgument $PluginRoot),
     "-ConfigPath", (Quote-TaskArgument $ConfigPath),

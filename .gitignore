@@ -29,6 +29,8 @@ venv/
 htmlcov/
 dist/
 build/
+_internal/
+*.exe
 *.egg-info/
 *.log
 *.zip

@@ -26,12 +26,28 @@ def resource_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def redirect_console_to_log(root: Path) -> None:
+    """无控制台窗口（--noconsole）模式下把 stdout/stderr 落盘，便于排障。
+
+    打包成 GUI 子系统后没有终端窗口，print 输出全部追加写入
+    logs/console-ui.log，与雷达运行日志（logs/radar_*.log）分开。
+    """
+    log_dir = root / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    stream = open(log_dir / "console-ui.log", "a", encoding="utf-8", buffering=1)
+    sys.stdout = stream
+    sys.stderr = stream
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="电力系统文献雷达桌面配置台")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
 
     root = resource_root()
+    if getattr(sys, "frozen", False):
+        # GUI 子系统没有终端，控制台日志写入 logs/console-ui.log
+        redirect_console_to_log(root)
     sys.path.insert(0, str(root / "scripts"))
     import radar_config_ui as ui
 

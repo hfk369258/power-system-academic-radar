@@ -18,8 +18,8 @@ if (Test-Path -LiteralPath $ExistingProfiles) {
     Write-Host "Existing profiles/ backed up for restore."
 }
 
-Write-Host "==> PyInstaller onedir build..."
-python -m PyInstaller --noconfirm --clean --onedir --name power-system-radar-ui `
+Write-Host "==> PyInstaller onedir build (no console window)..."
+python -m PyInstaller --noconfirm --clean --onedir --noconsole --name power-system-radar-ui `
     --hidden-import webview.platforms.edgechromium `
     scripts\radar_app.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }

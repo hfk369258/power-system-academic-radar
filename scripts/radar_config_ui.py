@@ -17,6 +17,9 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
+import urllib.error
+import urllib.request
 import uuid
 import webbrowser
 from copy import deepcopy
@@ -68,6 +71,87 @@ ENV_LINE_RE = re.compile(
 WEEKDAYS = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"}
 DOCUMENT_TYPES = ("journal", "preprint", "conference")
 DOCUMENT_TYPE_LABELS = {"journal": "期刊论文", "preprint": "预印本", "conference": "会议论文"}
+LLM_TEST_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
+
+def test_llm_connection(model: str, base_url: str, api_key: str) -> dict[str, Any]:
+    """调用一次 OpenAI 兼容 chat/completions，验证端点、模型与密钥是否可用。
+
+    只发一句极短的 ping（max_tokens=5），不保存任何状态；失败按常见原因
+    翻译成中文提示，方便用户直接看懂是 Key 问题、路径问题还是网络问题。
+    """
+    api_key = str(api_key or "").strip()
+    if not api_key:
+        raise ConfigError("请先在“本机接口与账号”中填写 API Key")
+    model = str(model or "").strip()
+    if not model or len(model) > 120:
+        raise ConfigError("模型名称不能为空")
+    base_url = str(base_url or "").strip()
+    if not re.match(r"^https?://", base_url, flags=re.I) or len(base_url) > 500:
+        raise ConfigError("API 地址必须是有效的 http/https 地址")
+    payload = {
+        "model": model,
+        "max_tokens": 64,
+        "temperature": 0,
+        "messages": [{"role": "user", "content": "ping"}],
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "User-Agent": LLM_TEST_UA,
+    }
+    request = urllib.request.Request(
+        base_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    started = time.perf_counter()
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            raw = response.read(65536)
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        detail = ""
+        try:
+            server_message = (json.loads(exc.read(2048).decode("utf-8")) or {}).get("error", {}).get("message")
+            if isinstance(server_message, str) and server_message:
+                detail = f"（{server_message[:120]}）"
+        except Exception:  # noqa: BLE001
+            pass
+        if status in (401, 403):
+            raise ConfigError("API Key 无效或没有该模型的访问权限（HTTP 401/403）") from exc
+        if status == 402:
+            raise ConfigError(f"账户余额不足或欠费（HTTP 402）{detail}") from exc
+        if status == 404:
+            raise ConfigError("地址或模型不存在，请核对 API 地址末尾的 chat/completions 与模型名（404）") from exc
+        if status == 429:
+            raise ConfigError("请求被限流（429），请稍后再试或检查套餐额度") from exc
+        raise ConfigError(f"服务端返回错误（HTTP {status}）{detail}") from exc
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        raise ConfigError(f"无法连接到服务器：{reason}") from exc
+    except TimeoutError as exc:
+        raise ConfigError("连接超时，请检查网络或更换端点") from exc
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    try:
+        data = json.loads(raw.decode("utf-8"))
+        message = (data.get("choices") or [{}])[0].get("message") or {}
+        # 推理类模型可能只返回 reasoning_content、content 置空，两者任一非空即视为成功
+        reply = message.get("content") or message.get("reasoning_content") or ""
+    except Exception:  # noqa: BLE001
+        reply = ""
+    if not reply:
+        raise ConfigError("服务端响应格式异常，请确认这是 OpenAI 兼容的 chat/completions 地址")
+    return {"model": model, "latency_ms": latency_ms, "reply": str(reply)[:40]}
+
+
+def _no_window_flags() -> int:
+    """Windows 下隐藏子进程终端窗口，避免控制台操作时弹出 PowerShell 窗口。"""
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
 class ConfigError(ValueError):
@@ -657,7 +741,7 @@ class ConfigStore:
                 str(PLUGIN_ROOT / "scripts" / "setup_windows_task.ps1"),
                 "-TaskName", task_name, "-PluginRoot", str(PLUGIN_ROOT), "-Disable",
             ]
-            completed = subprocess.run(command, capture_output=True, text=True, timeout=60, check=False)
+            completed = subprocess.run(command, capture_output=True, text=True, timeout=60, check=False, creationflags=_no_window_flags())
             if completed.returncode != 0:
                 detail = (completed.stderr or completed.stdout or "计划任务停用失败").strip()
                 raise ConfigError(chinese_exception_message(ConfigError(detail[-1200:])))
@@ -768,6 +852,17 @@ class ConfigStore:
                     os.unlink(temp_name)
             return {"values": values, "revision": _text_revision(updated)}
 
+    def test_llm(self, profile: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """用界面当前值（或已保存凭据）实调一次模型，验证 Key/端点/模型名。"""
+        self._path(profile)
+        model = str(payload.get("model") or "").strip()
+        base_url = str(payload.get("base_url") or "").strip()
+        api_key = str(payload.get("api_key") or "").strip()
+        if not api_key:
+            env_text = _read_env_text(self.env_files.get(profile))
+            api_key = (parse_env_values(env_text) or {}).get("DEEPSEEK_API_KEY", "")
+        return test_llm_connection(model, base_url, api_key)
+
     def apply_schedule(self, profile: str) -> dict[str, Any]:
         config_path = self._path(profile)
         env_path = self.env_files.get(profile)
@@ -786,7 +881,7 @@ class ConfigStore:
             str(PLUGIN_ROOT / "scripts" / "setup_windows_task.ps1"),
             "-TaskName", str(meta["task_name"]), "-PluginRoot", str(PLUGIN_ROOT), "-Disable",
         ]
-        legacy_result = subprocess.run(legacy_command, capture_output=True, text=True, timeout=60, check=False)
+        legacy_result = subprocess.run(legacy_command, capture_output=True, text=True, timeout=60, check=False, creationflags=_no_window_flags())
         if legacy_result.returncode != 0:
             detail = (legacy_result.stderr or legacy_result.stdout or "旧计划任务停用失败").strip()
             raise ConfigError(chinese_exception_message(ConfigError(detail[-1200:])))
@@ -816,7 +911,7 @@ class ConfigStore:
                 command.append("-EnableIEEE")
             if "elsevier_scopus_api" in source_types:
                 command.append("-EnableElsevier")
-            completed = subprocess.run(command, capture_output=True, text=True, timeout=60, check=False)
+            completed = subprocess.run(command, capture_output=True, text=True, timeout=60, check=False, creationflags=_no_window_flags())
             if completed.returncode != 0:
                 detail = (completed.stderr or completed.stdout or "计划任务更新失败").strip()
                 raise ConfigError(chinese_exception_message(ConfigError(detail[-1200:])))
@@ -940,6 +1035,15 @@ class RadarUIHandler(BaseHTTPRequestHandler):
                 body = self._body()
                 created = self.store.create_profile(body.get("name"), str(body.get("clone_from", "basic")))
                 self._json(HTTPStatus.CREATED, {"ok": True, "profile": created, "message": "推送方案已创建"})
+                return
+            if api_path == "/api/llm/test":
+                try:
+                    result = self.store.test_llm(self._profile(), self._body())
+                except ConfigError as exc:
+                    # 连接失败是预期业务结果而非请求格式错误，用 200 + ok:false 返回
+                    self._json(HTTPStatus.OK, {"ok": False, "error": str(exc)})
+                    return
+                self._json(HTTPStatus.OK, {"ok": True, "data": result, "message": "模型连接测试成功"})
                 return
             if api_path == "/api/restore":
                 restored = self.store.restore(self._profile())
