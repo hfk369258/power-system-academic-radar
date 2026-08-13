@@ -143,6 +143,12 @@ if ($EnableEmail -or $EnableWeChat -or $EnableIEEE -or $EnableElsevier) {
 
 $logDir = Join-Path $PluginRoot "logs"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+# 日志轮转：清理超过 30 天的旧运行日志与中断残留的临时文件，避免 logs/ 无限增长。
+$cutoff = (Get-Date).AddDays(-30)
+Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue | Where-Object {
+    ($_.Name -like "radar_*.log" -and $_.LastWriteTime -lt $cutoff) -or
+    $_.Name -like "radar_*.stderr.tmp" -or $_.Name -like "radar_*.stdout.tmp"
+} | Remove-Item -Force -ErrorAction SilentlyContinue
 $stamp = Get-Date -Format "yyyyMMdd_HHmmss_fff"
 $logPath = Join-Path $logDir ("radar_{0}_{1}_{2}.log" -f $configSlug, $DocumentType, $stamp)
 
@@ -179,6 +185,9 @@ try {
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
+    # 输出被重定向到日志时，Python 使用 locale 编码写 stderr；强制 UTF-8
+    # 防止中文告警在西文 locale（cp1252）下抛 UnicodeEncodeError 崩溃。
+    $startInfo.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8"
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $startInfo
     [void]$process.Start()

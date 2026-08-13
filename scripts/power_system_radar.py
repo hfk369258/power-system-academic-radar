@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import csv
 import datetime as dt
+import email.utils
 import hashlib
 import http.client
 import ipaddress
@@ -88,15 +89,23 @@ def http_json_headers(url: str, headers: dict[str, str], timeout: int = 30) -> d
 
 
 def read_http_json(request: urllib.request.Request, timeout: int, attempts: int = 2) -> dict[str, Any]:
-    """读取 JSON 响应；传输被截断时重试一次，其余 HTTP 错误保持原语义。"""
+    """读取 JSON 响应；对瞬时故障（传输截断/超时/5xx/连接错误）做小退避重试，4xx 与 JSON 解析错误保持原语义。"""
+    last_error: Exception | None = None
     for attempt in range(attempts):
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 return json.loads(response.read().decode("utf-8", errors="replace"))
-        except http.client.IncompleteRead:
-            if attempt + 1 >= attempts:
+        except http.client.IncompleteRead as exc:
+            last_error = exc
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500:
                 raise
-            time.sleep(0.5)
+            last_error = exc
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            last_error = exc
+        if attempt + 1 >= attempts:
+            raise last_error
+        time.sleep(0.5 * (attempt + 1))
     raise RuntimeError("unreachable")
 
 
@@ -381,7 +390,13 @@ def fetch_crossref(config: dict[str, Any], source: dict[str, Any], since: dt.dat
             for a in work.get("author", [])
         ]
         date_parts = (((work.get("published-print") or work.get("published-online") or work.get("created") or {}).get("date-parts") or [[]])[0])
-        published = "-".join(str(x) for x in date_parts if x)
+        # 年/月/日零填充，保证与 "2026-08-01" 形式的字符串排序一致（否则 "2026-8-1" 会排到 "2026-08-01" 之后）。
+        try:
+            published = "-".join(
+                f"{int(x):04d}" if i == 0 else f"{int(x):02d}" for i, x in enumerate(date_parts) if x
+            )
+        except (TypeError, ValueError):
+            published = "-".join(str(x) for x in date_parts if x)
         links = work.get("link") or []
         licenses = work.get("license") or []
         oa_url = next((link.get("URL") for link in links if link.get("URL")), "")
@@ -554,13 +569,18 @@ def fetch_ieee(config: dict[str, Any], source: dict[str, Any], since: dt.date, l
         raise
     items = []
     for article in data.get("articles", []):
+        published = normalize_space(article.get("publication_date"))[:10]
+        # IEEE 接口仅支持按年份过滤，结果必须再按日期窗口过滤一次，
+        # 否则首次运行会把过去一年的旧论文全部推给用户。
+        if published and published < since.isoformat():
+            continue
         items.append(
             clean_item(
                 {
                     "title": article.get("title"),
                     "authors": [a.get("full_name", "") for a in article.get("authors", {}).get("authors", [])],
                     "year": article.get("publication_year"),
-                    "published": article.get("publication_date"),
+                    "published": published,
                     "venue": article.get("publication_title"),
                     "doi": article.get("doi"),
                     "url": article.get("html_url") or article.get("abstract_url"),
@@ -736,6 +756,21 @@ def feed_url_blocked(url: str) -> bool:
         return False
 
 
+def _feed_published_iso(value: Any) -> str:
+    """RSS pubDate / Atom updated 统一提取 ISO 日期；解析失败返回空串（条目保守保留）。"""
+    text = normalize_space(value)
+    if not text:
+        return ""
+    match = re.match(r"^\d{4}-\d{2}-\d{2}", text)
+    if match:
+        return match.group(0)
+    try:
+        parsed = email.utils.parsedate_to_datetime(text)
+    except (TypeError, ValueError, OverflowError):
+        return ""
+    return parsed.date().isoformat() if parsed else ""
+
+
 def fetch_rss(config: dict[str, Any], source: dict[str, Any], since: dt.date, limit: int) -> list[dict[str, Any]]:
     items = []
     for url in source.get("urls", []):
@@ -749,6 +784,10 @@ def fetch_rss(config: dict[str, Any], source: dict[str, Any], since: dt.date, li
             print(f"[warn] rss failed {url[:120]}: {safe_error(exc)}", file=sys.stderr)
             continue
         for entry in iter_feed_entries(root):
+            published = _feed_published_iso(entry.get("published"))
+            # RSS 源此前完全不按日期过滤，首次运行可能推送一年前的旧文；无日期条目保守保留。
+            if published and published < since.isoformat():
+                continue
             item = clean_item({**entry, "source": source["name"], "origin": url})
             if keyword_score(item, config)[0] >= int(config.get("scoring", {}).get("min_score", 4)):
                 items.append(item)
@@ -1416,7 +1455,7 @@ def dedupe_and_score(items: list[dict[str, Any]], config: dict[str, Any], seen: 
 
     每篇记录生成一组「别名键」：DOI 键、规范化标题键（长标题时）、来源 ID 键。
     - 历史状态里命中任一别名即视为已推送（跨源同一论文不再“换键重生”）；
-    - 本轮内任一别名相同即合并，保留相关度最高的一条。
+    - 本轮内任一别名相同即合并，优先保留未推送过的记录，其次保留相关度最高的。
     """
     by_key: dict[str, dict[str, Any]] = {}
     alias_owner: dict[str, str] = {}
@@ -1428,6 +1467,10 @@ def dedupe_and_score(items: list[dict[str, Any]], config: dict[str, Any], seen: 
         if not journal_ok:
             continue
         score, hits = keyword_score(item, config)
+        # 排除词命中（keyword_score 返回 -99）任何来源一律剔除，
+        # 必须先于 manual/napstic 源的最低分豁免，否则排除词对它们失效。
+        if score == -99:
+            continue
         stable_key = item_key(item)
         title_key = normalized_title_key(item)
         key = title_key or stable_key
@@ -1445,7 +1488,14 @@ def dedupe_and_score(items: list[dict[str, Any]], config: dict[str, Any], seen: 
         canonical = next((alias_owner[alias] for alias in aliases if alias in alias_owner), key)
         for alias in aliases:
             alias_owner.setdefault(alias, canonical)
-        if canonical not in by_key or score > int(by_key[canonical].get("score", 0)):
+        existing = by_key.get(canonical)
+        if existing is None:
+            by_key[canonical] = item
+        elif bool(item.get("seen_before")) != bool(existing.get("seen_before")):
+            # 优先保留未推送过的记录，避免已推送的旧文挤掉同标题新文后被整体剔除。
+            if not item.get("seen_before"):
+                by_key[canonical] = item
+        elif score > int(existing.get("score", 0)):
             by_key[canonical] = item
     # 先按发布日期倒序，再用稳定排序把相关性分数作为第一优先级。
     ranked = sorted(by_key.values(), key=lambda x: x.get("published", ""), reverse=True)
@@ -1619,7 +1669,57 @@ def write_outputs(items: list[dict[str, Any]], config: dict[str, Any], root: Pat
     return md_path, json_path, html_path, dash_path
 
 
+_LLM_NOTICE = ""
+_LLM_HTTP_REASONS = {
+    400: "请求参数无效",
+    401: "API Key 无效",
+    402: "账户余额不足",
+    403: "无模型访问权限",
+    404: "模型不存在",
+    429: "请求限流",
+}
+
+
+def get_llm_notice() -> str:
+    """返回本轮 LLM 解读的可用性提示（如「402 账户余额不足」），供日报/邮件/微信顶部展示；空串表示无异常。"""
+    return _LLM_NOTICE
+
+
+def _llm_cache_path(config: dict[str, Any]) -> Path | None:
+    """LLM 解读结果缓存文件：放在状态文件同目录，避免 basic/full 两方案重复消耗配额。"""
+    profile = config.get("profile") or {}
+    state = resolve_path(profile.get("state_file"), Path.cwd())
+    if state is not None:
+        return state.parent / "llm_cache.json"
+    output = resolve_path(profile.get("output_dir"), Path.cwd())
+    return output.parent / "llm_cache.json" if output is not None else None
+
+
+def _llm_cache_load(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _llm_cache_save(path: Path, cache: dict[str, Any]) -> None:
+    """原子写缓存；超过 2000 条时按时间戳保留最新 1500 条，防止缓存无限膨胀。"""
+    if len(cache) > 2000:
+        recent = sorted(cache.items(), key=lambda kv: str(kv[1].get("ts", "")), reverse=True)[:1500]
+        cache = dict(recent)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        temp.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+        os.replace(temp, path)
+    except OSError as exc:
+        print(f"[warn] could not write llm cache: {safe_error(exc)}", file=sys.stderr)
+
+
 def enrich_interpretations(items: list[dict[str, Any]], config: dict[str, Any]) -> None:
+    global _LLM_NOTICE
+    _LLM_NOTICE = ""
     interpretation = config.get("interpretation") or {}
     if not interpretation.get("enabled", True):
         return
@@ -1645,13 +1745,33 @@ def enrich_interpretations(items: list[dict[str, Any]], config: dict[str, Any]) 
     api_key = env_value(llm_config.get("api_key_env", "DEEPSEEK_API_KEY"))
     if not api_key:
         print("[warn] llm_interpretation enabled but DEEPSEEK_API_KEY is missing; using rule-based interpretation", file=sys.stderr)
+        _LLM_NOTICE = "⚠ LLM 解读未启用（未配置 API Key），以下为本地规则摘要"
         return
 
+    cache_path = _llm_cache_path(config)
+    cache = _llm_cache_load(cache_path) if cache_path is not None else {}
+    cache_dirty = False
     configured_llm_max = int(llm_config.get("max_items", 0))
     max_llm = len(analysis_items) if configured_llm_max <= 0 else min(configured_llm_max, len(analysis_items))
+    llm_ok = 0
+    fail_reasons: list[str] = []
     for item in analysis_items[:max_llm]:
         if contains_cjk(item.get("title")):
             # 中文文献本就提供中文摘要与规则解读，无需 LLM 翻译；跳过以节省配额
+            continue
+        cache_key = f"v2::{llm_model(llm_config)}::{item.get('key') or item_key(item)}"
+        # 跨源命中：同篇论文换个稳定键（如另一源给了 DOI）也能按规范化标题命中缓存
+        title_key = normalized_title_key(item)
+        title_cache_key = f"v2::{llm_model(llm_config)}::title::{title_key}" if title_key else ""
+        cached = cache.get(cache_key)
+        if not cached and title_cache_key:
+            cached = cache.get(title_cache_key)
+        if isinstance(cached, dict) and isinstance(cached.get("result"), dict):
+            # 命中缓存：跳过 API 调用，basic/full 双方案与失败重跑不再重复消耗配额。
+            item["interpretation"] = cached["result"]
+            item["abstract_zh"] = normalize_space(cached["result"].get("abstract_zh")) or normalize_space(item.get("abstract_zh"))
+            item["interpretation_mode"] = "deepseek_cached"
+            llm_ok += 1
             continue
         fallback = item.get("interpretation") or interpret_item(item, config)
         try:
@@ -1659,10 +1779,28 @@ def enrich_interpretations(items: list[dict[str, Any]], config: dict[str, Any]) 
             item["interpretation"] = deepseek_result
             item["abstract_zh"] = normalize_space(deepseek_result.get("abstract_zh")) or normalize_space(item.get("abstract_zh"))
             item["interpretation_mode"] = "deepseek"
+            llm_ok += 1
+            record = {"ts": dt.datetime.now().isoformat(timespec="seconds"), "result": deepseek_result}
+            cache[cache_key] = record
+            if title_cache_key:
+                cache[title_cache_key] = record
+            cache_dirty = True
         except Exception as exc:  # noqa: BLE001
             print(f"[warn] deepseek interpretation failed for one item: {safe_error(exc)}; using rule-based interpretation", file=sys.stderr)
             item["interpretation"] = fallback
             item["interpretation_mode"] = "rule_fallback"
+            if isinstance(exc, urllib.error.HTTPError):
+                reason = _LLM_HTTP_REASONS.get(exc.code, f"HTTP {exc.code}")
+            else:
+                reason = "请求失败"
+            if reason not in fail_reasons:
+                fail_reasons.append(reason)
+    if cache_dirty and cache_path is not None:
+        _llm_cache_save(cache_path, cache)
+    if not llm_ok:
+        _LLM_NOTICE = f"⚠ LLM 中文解读本轮不可用（{', '.join(fail_reasons) or '未知错误'}），以下为本地规则摘要"
+    elif fail_reasons:
+        _LLM_NOTICE = f"⚠ 部分文献 LLM 解读失败（{', '.join(fail_reasons)}），已用本地规则摘要补充"
 
 
 def interpret_item_with_deepseek_retry(
@@ -1685,6 +1823,9 @@ def interpret_item_with_deepseek_retry(
         except urllib.error.HTTPError as exc:
             last_error = exc
             if attempt + 1 >= attempts:
+                break
+            # 鉴权/余额/权限/模型类错误重试无意义且浪费配额，立即降级到规则解读。
+            if exc.code in {400, 401, 402, 403, 404}:
                 break
             if exc.code == 429:
                 try:
@@ -1921,6 +2062,9 @@ def render_digest_markdown(items: list[dict[str, Any]], config: dict[str, Any]) 
         "- 说明：仅命中配置白名单期刊；非OA或无摘要记录不做全文级创新点判断。",
         "",
     ]
+    notice = get_llm_notice()
+    if notice:
+        lines += [f"- {notice}", ""]
     # 中英分区：英文在前、中文在后，各自带计数标题
     en_group, zh_group = group_by_language(items)
     section_counts = {False: len(en_group), True: len(zh_group)}
@@ -2056,6 +2200,13 @@ def render_digest_html(
 </tr></table>
 """)
 
+    notice = get_llm_notice()
+    if notice:
+        parts.append(f"""\
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#fff7e6;border:1px solid #f0c36d;border-radius:9px;margin:10px 0">
+<tr><td style="padding:12px 18px;font-size:14px;line-height:1.7;color:#7a5b16">⚠️ {html_escape(notice)}</td></tr></table>
+""")
+
     brief = daily_brief or fallback_daily_brief(items)
     source_label = "DeepSeek 今日综合" if brief.get("source") == "deepseek" else "本地规则回退"
     trends_html = "".join(
@@ -2126,8 +2277,13 @@ def _email_card(i: int, item: dict[str, Any]) -> str:
     source_button = f'<a href="{html_escape(url)}" target="_blank" style="display:inline-block;background:#0f3460;color:#fff;text-decoration:none;border-radius:7px;padding:9px 15px;font-size:13px;font-weight:700;margin-right:7px">阅读原文 →</a>' if url else ''
     oa_button = f'<a href="{html_escape(oa_url)}" target="_blank" style="display:inline-block;background:#e8f5ee;color:#176b45;text-decoration:none;border-radius:7px;padding:9px 15px;font-size:13px;font-weight:700">OA 全文</a>' if oa_url else ''
     mode = item.get("interpretation_mode") or "keywords_only"
-    mode_label = "DeepSeek 解读" if mode == "deepseek" else ("规则回退" if mode == "rule_fallback" else "关键词初筛")
-    mode_color = "#176b45" if mode == "deepseek" else "#8a5a00"
+    mode_label = (
+        "DeepSeek 解读（缓存）" if mode == "deepseek_cached"
+        else "DeepSeek 解读" if mode == "deepseek"
+        else "规则回退" if mode == "rule_fallback"
+        else "关键词初筛"
+    )
+    mode_color = "#176b45" if mode in {"deepseek", "deepseek_cached"} else "#8a5a00"
     if problem or method or innovation:
         brief_rows = [
             ("研究焦点", textwrap.shorten(problem, width=150, placeholder="…")),
@@ -2196,6 +2352,7 @@ main{{max-width:1040px;margin:auto;padding:8px 20px 48px}}.result-line{{font-siz
 .actions{{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}}.btn{{display:inline-block;border-radius:7px;padding:7px 11px;font-size:11px;font-weight:700;text-decoration:none;border:0;cursor:pointer}}.btn.primary{{background:#12365a;color:#fff}}.btn.oa{{background:#e6f4ef;color:#176b4d}}.btn.more{{background:#eef2f6;color:#40536a}}.detail{{display:none;border-top:1px solid #e8edf2;margin-top:12px;padding-top:10px;font-size:12px;color:#526173}}.card.open .detail{{display:block}}.detail p{{margin:5px 0}}.empty{{background:#fff;border:1px dashed #bdc9d6;border-radius:10px;padding:35px;text-align:center;color:#718096}}
 @media(max-width:700px){{.top-inner{{padding:12px 14px 10px}}.nav-wrap,main{{padding-left:14px;padding-right:14px}}h1{{font-size:18px}}.summary{{gap:10px}}.flow{{grid-template-columns:1fr}}.arrow{{transform:rotate(90deg);height:18px}}.card{{padding:14px}}.topic{{scroll-margin-top:145px}}}}
 </style></head><body>
+{("<div style=\"max-width:1040px;margin:10px auto 0;padding:0 20px\"><div style=\"background:#fff7e6;border:1px solid #f0c36d;border-radius:8px;padding:10px 14px;font-size:13px;color:#7a5b16\">⚠️ " + html_escape(get_llm_notice()) + "</div></div>") if get_llm_notice() else ""}
 <div class="top"><div class="top-inner"><h1>电力系统文献雷达</h1><div class="meta">{generated_at} · {html_escape(title)}</div>
 <div class="summary"><span><b>{len(items)}</b>篇文献</span><span><b>{high}</b>篇高相关</span><span><b>{oa_count}</b>篇开放获取</span><span>最高相关度 <b>{score_max}</b></span></div>
 <div class="search-row"><input id="search" type="search" placeholder="搜索标题、作者、关键词、摘要或研究概括"></div></div></div>
@@ -2615,43 +2772,69 @@ def print_dry_run(config: dict[str, Any]) -> None:
         print("- manual_exports:", ", ".join(manual.get("paths", [])))
 
 
-def maybe_notify(config: dict[str, Any], md_path: Path, json_path: Path, html_path: Path, dash_path: Path, items: list[dict[str, Any]]) -> bool:
-    # 空结果不应被当作正常日报发送。网络代理失效、数据源限流或接口连接失败时，
-    # 抓取阶段会返回空列表；如果继续发送，收件人会把“抓取失败”误解为“今天没有论文”。
-    # 报告文件仍会保留在本地，待网络恢复后可重新运行或手动重发。
+def _email_channel_ready(email: dict[str, Any]) -> bool:
+    """邮件渠道的关键配置是否齐全：SMTP 主机、发件人、至少一个收件人。"""
+    host = env_value(email.get("smtp_host_env", "RADAR_SMTP_HOST"))
+    user = env_value(email.get("smtp_user_env", "RADAR_SMTP_USER"))
+    sender = env_value(email.get("from_env", "RADAR_EMAIL_FROM"), user)
+    configured_recipients = email.get("recipients") or []
+    if isinstance(configured_recipients, str):
+        configured_recipients = configured_recipients.split(",")
+    recipients = [a.strip() for a in configured_recipients if a.strip()] or [
+        a.strip() for a in env_value(email.get("to_env", "RADAR_EMAIL_TO")).split(",") if a.strip()
+    ]
+    return bool(host and sender and recipients)
+
+
+def maybe_notify(config: dict[str, Any], md_path: Path, json_path: Path, html_path: Path, dash_path: Path, items: list[dict[str, Any]]) -> tuple[bool, bool]:
+    """发送全部启用且配置齐全的通知渠道，返回 (delivered_any, all_ok)。
+
+    delivered_any=True 时主流程写入去重状态，避免「邮件成功+微信失败」导致下一轮重复推送；
+    all_ok 供发送记录区分 delivered（全渠道成功）与 partial（部分渠道失败）。
+
+    空结果不发送：网络代理失效、数据源限流或接口连接失败时抓取返回空列表，
+    若照发，收件人会把「抓取失败」误解为「今天没有论文」。
+    """
     if not items:
         print("[warn] no records; notification skipped", file=sys.stderr)
-        return False
+        return False, False
     notifications = config.get("notifications") or {}
     digest = md_path.read_text(encoding="utf-8")
     html_body = html_path.read_text(encoding="utf-8") if html_path.exists() else ""
     count = len(items)
-    results: dict[str, bool] = {}
 
+    # 只把「enabled 且关键配置齐全」的渠道计入本轮应发集合；
+    # 缺配置的渠道只告警，不发送也不拖累整体判定（未配置渠道不应被判为失败）。
     email = notifications.get("email") or {}
-    if email.get("enabled"):
-        try:
-            results["email"] = send_email_digest(email, digest, md_path, json_path, html_body, dash_path, count)
-        except Exception as exc:  # noqa: BLE001 — 单渠道失败不得拖垮整轮
-            print(f"[warn] email notify failed: {safe_error(exc)}", file=sys.stderr)
-            results["email"] = False
-
     wechat = notifications.get("wechat") or {}
-    if wechat.get("enabled"):
-        try:
-            results["wechat"] = send_wechat_digest(wechat, items, md_path, count)
-        except Exception as exc:  # noqa: BLE001
-            print(f"[warn] wechat notify failed: {safe_error(exc)}", file=sys.stderr)
-            results["wechat"] = False
-
     webhook = notifications.get("webhook") or {}
-    if webhook.get("enabled"):
-        url = os.environ.get(webhook.get("url_env", "RADAR_WEBHOOK_URL"))
-        if not url:
-            print("[warn] webhook enabled but URL env is missing", file=sys.stderr)
-            results["webhook"] = False
+    channels: list[tuple[str, dict[str, Any]]] = []
+    if email.get("enabled"):
+        if _email_channel_ready(email):
+            channels.append(("email", email))
         else:
-            try:
+            print("[warn] email enabled but SMTP/recipient config is incomplete; channel skipped", file=sys.stderr)
+    if wechat.get("enabled"):
+        if env_value(wechat.get("webhook_url_env", "RADAR_WECHAT_WEBHOOK_URL")):
+            channels.append(("wechat", wechat))
+        else:
+            print("[warn] wechat enabled but webhook env is missing; channel skipped", file=sys.stderr)
+    if webhook.get("enabled"):
+        if os.environ.get(webhook.get("url_env", "RADAR_WEBHOOK_URL")):
+            channels.append(("webhook", webhook))
+        else:
+            print("[warn] webhook enabled but URL env is missing; channel skipped", file=sys.stderr)
+
+    delivered: list[str] = []
+    for name, channel in channels:
+        ok = False
+        try:
+            if name == "email":
+                ok = send_email_digest(channel, digest, md_path, json_path, html_body, dash_path, count)
+            elif name == "wechat":
+                ok = send_wechat_digest(channel, items, md_path, count)
+            else:
+                url = os.environ.get(channel.get("url_env", "RADAR_WEBHOOK_URL"))
                 post_webhook(
                     url,
                     {
@@ -2660,17 +2843,18 @@ def maybe_notify(config: dict[str, Any], md_path: Path, json_path: Path, html_pa
                         "json_path": str(json_path),
                     },
                 )
-                results["webhook"] = True
-            except Exception as exc:  # noqa: BLE001
-                print(f"[warn] webhook notify failed: {safe_error(exc)}", file=sys.stderr)
-                results["webhook"] = False
+                ok = True
+        except Exception as exc:  # noqa: BLE001
+            # 单渠道异常只告警并继续其他渠道，绝不让邮件失败中断微信/webhook。
+            print(f"[warn] notification channel '{name}' failed: {safe_error(exc)}", file=sys.stderr)
+        if ok:
+            delivered.append(name)
+        else:
+            print(f"[warn] notification channel '{name}' did not deliver", file=sys.stderr)
 
-    # 任一启用渠道送达成功即视为「本轮已推送」（记入状态），避免部分失败导致
-    # 已送达渠道次日重复轰炸；失败渠道在日志中可见，网络恢复后可手动重发。
-    delivered_channels = [name for name, ok in results.items() if ok]
-    if delivered_channels:
-        print(f"[info] delivered via: {', '.join(delivered_channels)}", file=sys.stderr)
-    return bool(delivered_channels)
+    delivered_any = bool(delivered)
+    all_ok = bool(channels) and len(delivered) == len(channels)
+    return delivered_any, all_ok
 
 
 def append_history(
@@ -2678,13 +2862,16 @@ def append_history(
     config: dict[str, Any],
     document_type: str | None,
     items: list[dict[str, Any]],
-    delivered: bool,
+    status: str,
     md_path: Path,
     json_path: Path,
     html_path: Path,
     dash_path: Path,
 ) -> None:
-    """追加一条运行记录到 history.jsonl，供图形控制台「发送记录」面板读取。"""
+    """追加一条运行记录到 history.jsonl，供图形控制台「发送记录」面板读取。
+
+    status: delivered=全渠道送达 / partial=部分渠道送达 / skipped=无记录跳过 / failed=渠道全部失败。
+    """
     try:
         profile = config.get("profile") or {}
         entry = {
@@ -2692,8 +2879,7 @@ def append_history(
             "profile": str(profile.get("name") or ""),
             "document_type": document_type or "",
             "records": len(items),
-            # delivered=全渠道送达；items 为空时只生成空日报，不算失败。
-            "status": "delivered" if delivered else ("skipped" if not items else "failed"),
+            "status": status,
             "digest": md_path.name,
             "dashboard": dash_path.name,
             "records_file": json_path.name,
@@ -2794,6 +2980,9 @@ def render_wechat_markdown(items: list[dict[str, Any]], md_path: Path, count: in
         f"> 本次筛出 {count} 条记录",
         "",
     ]
+    notice = get_llm_notice()
+    if notice:
+        lines += [f"> {notice}", ""]
     if not items:
         lines.append("暂无符合阈值的新记录。")
     for i, item in enumerate(items, 1):
@@ -2805,7 +2994,7 @@ def render_wechat_markdown(items: list[dict[str, Any]], md_path: Path, count: in
         lines.append(f"   分数: {score} | {md_escape(venue)}")
         if url:
             lines.append(f"   {url}")
-    lines.extend(["", f"完整 digest: {md_path}"])
+    lines.extend(["", f"完整 digest 文件名: {md_path.name}"])
     return "\n".join(lines)
 
 
@@ -2855,7 +3044,13 @@ def main() -> int:
 
     profile = config.get("profile") or {}
     lookback = int(profile.get("lookback_days", 14))
-    since = dt.date.fromisoformat(args.since) if args.since else utc_today() - dt.timedelta(days=lookback)
+    if args.since:
+        try:
+            since = dt.date.fromisoformat(args.since)
+        except ValueError:
+            parser.error(f"--since 需为 ISO 日期（如 2026-07-01），收到: {args.since}")
+    else:
+        since = utc_today() - dt.timedelta(days=lookback)
     daily_target = max(0, int(profile.get("daily_target_items", 0)))
     # 中英分配额：宁缺毋滥。default 英文 10、中文 5；旧配置只有 daily_target_items 时全部按英文处理。
     target_en = max(0, int(profile.get("daily_target_en", daily_target or 10)))
@@ -2886,13 +3081,15 @@ def main() -> int:
         if total_target:
             items = apply_language_caps(items, target_en, target_zh)
         md_path, json_path, html_path, dash_path = write_outputs(items, config, root)
-        delivered = False
+        delivered_any = False
+        all_channels_ok = False
         if items:
-            delivered = maybe_notify(config, md_path, json_path, html_path, dash_path, items)
+            delivered_any, all_channels_ok = maybe_notify(config, md_path, json_path, html_path, dash_path, items)
         else:
             print("[info] no records passed quality/caps; skipping notification", file=sys.stderr)
+        # 任一渠道送达即写状态，避免「邮件成功+微信失败」时下一轮重复推送同一批文献。
         if not args.no_state:
-            if delivered:
+            if delivered_any:
                 state_keys = []
                 for item in items:
                     state_keys.append(item["key"])
@@ -2900,9 +3097,17 @@ def main() -> int:
                         state_keys.append(item["dedupe_key"])
                 write_state(state_path, state_keys)
             elif items:
-                print("[warn] state not updated because no enabled notification completed successfully", file=sys.stderr)
+                print("[warn] state not updated because no notification channel delivered", file=sys.stderr)
+        if not items:
+            status = "skipped"
+        elif all_channels_ok:
+            status = "delivered"
+        elif delivered_any:
+            status = "partial"
+        else:
+            status = "failed"
         append_history(
-            md_path.parent, config, args.document_type, items, delivered, md_path, json_path, html_path, dash_path
+            md_path.parent, config, args.document_type, items, status, md_path, json_path, html_path, dash_path
         )
     print(f"records: {len(items)}")
     print(f"digest: {md_path}")

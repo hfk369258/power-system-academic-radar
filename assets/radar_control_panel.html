@@ -105,7 +105,7 @@
     .history-tools select { width: auto; min-width: 150px; }
     .history-tools small { color: var(--muted); }
     .history-list { display: grid; gap: 8px; max-height: 460px; overflow: auto; padding-right: 4px; }
-    .history-row { display: grid; grid-template-columns: 150px 92px 64px 128px 1fr; gap: 8px; align-items: center; padding: 9px 12px; border: 1px solid var(--line); border-radius: 11px; background: #fbfcfb; }
+    .history-row { display: grid; grid-template-columns: 150px 92px 64px 128px 1fr auto; gap: 8px; align-items: center; padding: 9px 12px; border: 1px solid var(--line); border-radius: 11px; background: #fbfcfb; }
     .history-row .time { color: var(--muted); font-size: 12px; }
     .history-row .doc { font-weight: 600; }
     .history-row .digest { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -251,6 +251,16 @@
             <small id="historySummary"></small>
           </div>
           <div class="history-list" id="historyList"></div>
+        </div>
+      </article>
+
+      <article class="panel wide" data-panel="maintenance">
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动维护模块">⠿</button><div><h2>维护与清理</h2><small>清理本机历史遗留的凭据备份与回收目录</small></div></div></header>
+        <div class="panel-body">
+          <div class="history-tools"><button class="btn" id="scanMaintenanceBtn">扫描本机残留</button><small id="maintenanceSummary"></small></div>
+          <div class="history-list" id="maintenanceList"></div>
+          <div class="section-actions"><button class="btn danger" id="cleanMaintenanceBtn" hidden>删除勾选目录</button></div>
+          <p class="hint">仅列出 profiles 目录下可能含旧凭据副本的隐藏目录（删除方案回收目录、历史备份）。清理前请确认不再需要，删除后不可恢复。</p>
         </div>
       </article>
     </section>
@@ -479,9 +489,23 @@
       }
     }
     async function applySchedule() {
+      const btn = $('applyScheduleBtn');
+      if (btn.disabled) return;
       if (!await save()) return;
-      try { const result = await api(`/api/schedule/apply?profile=${state.profile}`, {method:'POST',body:'{}'}); const active = Object.values(result.data.schedules || {}).filter(item => item.enabled).length; toast(`${result.message}：已启用 ${active} 类`); }
-      catch (error) { toast(chineseError(error, '推送计划应用失败'), true); }
+      btn.disabled = true; btn.textContent = '正在应用计划…';
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 90000);
+      try {
+        const result = await api(`/api/schedule/apply?profile=${state.profile}`, {method:'POST',body:'{}',signal:controller.signal});
+        const active = Object.values(result.data.schedules || {}).filter(item => item.enabled).length;
+        toast(`${result.message}：已启用 ${active} 类`);
+        (result.data.warnings || []).forEach(message => toast(`⚠ ${message}`, true));
+      }
+      catch (error) {
+        if (error.name === 'AbortError') toast('应用计划超时（90 秒），请到「任务计划程序」检查后重试', true);
+        else toast(chineseError(error, '推送计划应用失败'), true);
+      }
+      finally { clearTimeout(timer); btn.disabled = false; btn.textContent = '保存并应用计划'; }
     }
 
     async function stopSchedule() {
@@ -601,7 +625,7 @@
 
     const historyTypeLabels = { journal: '期刊论文', preprint: '预印本', conference: '会议论文' };
     const historyStatus = {
-      delivered: ['ok', '✅ 已送达'], skipped: ['skip', '⏭ 无记录跳过'], failed: ['fail', '❌ 未送达'], legacy: ['legacy', '📄 历史日报']
+      delivered: ['ok', '✅ 已送达'], partial: ['skip', '⚠ 部分送达'], skipped: ['skip', '⏭ 无记录跳过'], failed: ['fail', '❌ 未送达'], legacy: ['legacy', '📄 历史日报']
     };
     function formatHistoryTime(value) {
       const date = new Date(value);
@@ -609,10 +633,10 @@
       const pad = n => String(n).padStart(2, '0');
       return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
     }
-    async function loadHistory() {
+    async function loadHistory(force = false) {
       const list = $('historyList'); const summary = $('historySummary');
       const type = $('historyType').value;
-      const url = `/api/history?limit=120${type ? `&type=${encodeURIComponent(type)}` : ''}`;
+      const url = `/api/history?limit=120${type ? `&type=${encodeURIComponent(type)}` : ''}${force ? '&refresh=1' : ''}`;
       list.replaceChildren(); summary.textContent = '正在读取…';
       try {
         const result = await api(url);
@@ -630,7 +654,14 @@
           const records = document.createElement('span'); records.textContent = `${entry.records} 篇`;
           const badge = document.createElement('span'); const [kind, text] = historyStatus[entry.status] || ['legacy', entry.status]; badge.className = `badge ${kind}`; badge.textContent = text;
           const digest = document.createElement('span'); digest.className = 'digest'; digest.textContent = entry.digest || '(无日报)';
-          row.append(time, doc, records, badge, digest); list.append(row);
+          const view = document.createElement('a'); view.textContent = '查看'; view.className = 'btn'; view.style.cssText = 'padding:4px 10px;font-size:12px;text-decoration:none;white-space:nowrap';
+          const fileName = entry.dashboard || entry.html;
+          if (fileName) {
+            const prefix = entry.document_type ? `${entry.document_type}/` : '';
+            view.href = `/api/outputs/file?profile=${encodeURIComponent(entry.profile)}&name=${encodeURIComponent(prefix + fileName)}`;
+            view.target = '_blank'; view.rel = 'noopener'; view.title = '在新标签页打开当天日报';
+          } else { view.style.opacity = '.35'; view.style.pointerEvents = 'none'; view.title = '无本地产物文件'; }
+          row.append(time, doc, records, badge, digest, view); list.append(row);
         });
       } catch (error) {
         summary.textContent = '';
@@ -674,8 +705,55 @@
       });
     }
 
+    let maintenanceTargets = [];
+    async function scanMaintenance() {
+      const summary = $('maintenanceSummary'); const list = $('maintenanceList');
+      summary.textContent = '正在扫描…'; list.replaceChildren();
+      try {
+        const result = await api('/api/maintenance');
+        maintenanceTargets = Array.isArray(result.targets) ? result.targets : [];
+        if (!maintenanceTargets.length) {
+          summary.textContent = '没有发现需要清理的残留';
+          const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'profiles 目录很干净，无需清理。'; list.append(empty);
+          $('cleanMaintenanceBtn').hidden = true; return;
+        }
+        const totalMb = (maintenanceTargets.reduce((n, t) => n + (t.size || 0), 0) / 1048576).toFixed(1);
+        summary.textContent = `发现 ${maintenanceTargets.length} 个可清理目录，共 ${totalMb} MB`;
+        maintenanceTargets.forEach(target => {
+          const row = document.createElement('label'); row.className = 'history-row'; row.style.gridTemplateColumns = 'auto 1fr';
+          const check = document.createElement('input'); check.type = 'checkbox'; check.dataset.path = target.path; check.setAttribute('aria-label', `勾选删除 ${target.path}`);
+          const info = document.createElement('span');
+          const name = document.createElement('span'); name.className = 'doc'; name.textContent = `${target.label} · ${(target.size / 1048576).toFixed(1)} MB`;
+          const path = document.createElement('span'); path.className = 'digest'; path.textContent = target.path;
+          info.append(name, document.createElement('br'), path);
+          row.append(check, info); list.append(row);
+        });
+        $('cleanMaintenanceBtn').hidden = false;
+      } catch (error) {
+        summary.textContent = '';
+        const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = chineseError(error, '扫描失败'); list.append(empty);
+        $('cleanMaintenanceBtn').hidden = true;
+      }
+    }
+    async function cleanMaintenance() {
+      const checked = [...$('maintenanceList').querySelectorAll('input:checked')].map(input => input.dataset.path);
+      if (!checked.length) return toast('请先勾选要清理的目录', true);
+      const names = checked.map(x => x.split(/[\\/]/).pop()).join('、');
+      if (!confirm(`确定删除以下目录？删除后不可恢复：\n${names}`)) return;
+      const btn = $('cleanMaintenanceBtn'); btn.disabled = true; btn.textContent = '正在清理…';
+      try {
+        const result = await api('/api/maintenance/cleanup', {method:'POST', body:JSON.stringify({targets:checked})});
+        toast(result.message); await scanMaintenance();
+      } catch (error) { toast(chineseError(error, '清理失败'), true); }
+      finally { btn.disabled = false; btn.textContent = '删除勾选目录'; }
+    }
+
     function setupPanels() {
-      const grid = $('panelGrid'); const saved = JSON.parse(localStorage.getItem('radar-panel-order') || '[]');
+      const grid = $('panelGrid');
+      let saved = [];
+      try { saved = JSON.parse(localStorage.getItem('radar-panel-order') || '[]'); }
+      catch { localStorage.removeItem('radar-panel-order'); }
+      if (!Array.isArray(saved)) saved = [];
       saved.forEach(id => { const panel = grid.querySelector(`[data-panel="${id}"]`); if (panel) grid.append(panel); });
       grid.querySelectorAll('.drag-handle[draggable="true"]').forEach(handle => {
         const panel = handle.closest('.panel');
@@ -695,12 +773,13 @@
     $('addEmailBtn').addEventListener('click', () => { state.data.email.recipients.push(''); state.data.email.uses_environment_fallback = false; renderEmails(); changed(); setTimeout(() => $('emailList').querySelector('.email-row:last-child input')?.focus(), 0); });
     $('saveBtn').addEventListener('click', save); $('reloadBtn').addEventListener('click', () => { if (confirmLoss()) load(); });
     $('saveCredentialsBtn').addEventListener('click', saveCredentials); $('testLlmBtn').addEventListener('click', testLlm); $('applyScheduleBtn').addEventListener('click', applySchedule); $('stopScheduleBtn').addEventListener('click', stopSchedule);
-    $('historyType').addEventListener('change', loadHistory); $('refreshHistoryBtn').addEventListener('click', loadHistory);
+    $('historyType').addEventListener('change', loadHistory); $('refreshHistoryBtn').addEventListener('click', () => loadHistory(true));
+    $('scanMaintenanceBtn').addEventListener('click', scanMaintenance); $('cleanMaintenanceBtn').addEventListener('click', cleanMaintenance);
     $('restoreBtn').addEventListener('click', async () => { if (!confirmLoss()) return; if (!confirm('恢复到上一次保存前的配置？当前内容将被替换。')) return; try { const result = await api(`/api/restore?profile=${state.profile}`, { method: 'POST', body: '{}' }); state.data = normalizeData(clone(result.data), state.profile); render(); setDirty(false); toast(result.message); } catch (error) { toast(chineseError(error, '配置恢复失败'), true); } });
     window.addEventListener('error', event => { event.preventDefault(); toast(chineseError(event.error || event.message, '页面运行失败，请重新启动控制台'), true); });
     window.addEventListener('unhandledrejection', event => { event.preventDefault(); toast(chineseError(event.reason, '操作失败，请重试'), true); });
     window.addEventListener('beforeunload', e => { if (state.dirty || state.credentialsDirty) { e.preventDefault(); e.returnValue = ''; } });
-    setupPanels(); loadProfiles(); loadHistory();
+    setupPanels(); loadProfiles(); loadHistory(); scanMaintenance();
   </script>
 </body>
 </html>

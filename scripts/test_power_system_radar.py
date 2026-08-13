@@ -207,9 +207,10 @@ class RadarStateTests(unittest.TestCase):
             with mock.patch.object(radar, "send_email_digest", return_value=True), mock.patch.object(
                 radar, "send_wechat_digest", return_value=False
             ):
-                delivered = radar.maybe_notify(config, *files, [])
+                delivered_any, all_ok = radar.maybe_notify(config, *files, [])
 
-            self.assertFalse(delivered)
+            self.assertFalse(delivered_any)
+            self.assertFalse(all_ok)
 
     def test_partial_channel_success_counts_as_delivered(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -218,15 +219,27 @@ class RadarStateTests(unittest.TestCase):
             for path in files:
                 path.write_text("test", encoding="utf-8")
             item = {"title": "A paper", "score": 5}
-            config = {"notifications": {"email": {"enabled": True}, "wechat": {"enabled": True}}}
+            config = {
+                "notifications": {
+                    "email": {"enabled": True, "recipients": ["a@example.com"]},
+                    "wechat": {"enabled": True},
+                }
+            }
+            env = {
+                "RADAR_SMTP_HOST": "smtp.example.com",
+                "RADAR_EMAIL_FROM": "a@example.com",
+                "RADAR_WECHAT_WEBHOOK_URL": "http://127.0.0.1:9/hook",
+            }
 
             with mock.patch.object(radar, "send_email_digest", return_value=True), mock.patch.object(
                 radar, "send_wechat_digest", return_value=False
-            ):
-                delivered = radar.maybe_notify(config, *files, [item])
+            ), mock.patch.dict(os.environ, env):
+                delivered_any, all_ok = radar.maybe_notify(config, *files, [item])
 
-            # 至少一个渠道送达即视为已推送，避免次日对已送达渠道重复轰炸
-            self.assertTrue(delivered)
+            # 至少一个渠道送达即视为已推送，避免次日对已送达渠道重复轰炸；
+            # 微信失败时 all_ok 为 False，发送记录据此标记 partial。
+            self.assertTrue(delivered_any)
+            self.assertFalse(all_ok)
 
     def test_webhook_exception_does_not_crash_notification(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -245,9 +258,10 @@ class RadarStateTests(unittest.TestCase):
             with mock.patch.object(radar, "post_webhook", side_effect=TimeoutError("boom")), mock.patch.dict(
                 os.environ, {"RADAR_WEBHOOK_URL": "http://127.0.0.1:9/hook"}
             ):
-                delivered = radar.maybe_notify(config, *files, [item])
+                delivered_any, all_ok = radar.maybe_notify(config, *files, [item])
 
-            self.assertFalse(delivered)
+            self.assertFalse(delivered_any)
+            self.assertFalse(all_ok)
 
     def test_state_corruption_is_backed_up_not_silently_cleared(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -323,6 +337,16 @@ class RadarStateTests(unittest.TestCase):
         result = radar.dedupe_and_score([item], config, {title_key})
         self.assertEqual(result, [])
 
+    def test_excluded_terms_apply_to_manual_and_napstic_sources(self) -> None:
+        config = {
+            "scoring": {"min_score": 4},
+            "journal_filter": {"enabled": False},
+            "keywords": {"core": ["grid"], "exclude": ["semiconductor"]},
+        }
+        item = {"title": "Grid Semiconductor Packaging Research", "source": "manual_exports"}
+        result = radar.dedupe_and_score([item], config, set())
+        self.assertEqual(result, [])
+
     def test_prune_old_outputs_only_removes_expired_report_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output_dir = Path(directory)
@@ -385,7 +409,7 @@ class RadarStateTests(unittest.TestCase):
             with mock.patch.object(radar, "load_config", return_value=config), mock.patch.object(
                 radar, "fetch_enabled_sources", side_effect=[recent, backfill]
             ) as fetch_mock, mock.patch.object(radar, "write_outputs", return_value=output_paths) as write_mock, mock.patch.object(
-                radar, "maybe_notify", return_value=True
+                radar, "maybe_notify", return_value=(True, True)
             ), mock.patch.object(sys, "argv", ["radar", "--run", "--config", "ignored.json"]):
                 result = radar.main()
 

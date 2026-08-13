@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import itertools
 import json
 import os
 import re
@@ -250,9 +251,9 @@ def validate_credentials(payload: dict[str, Any]) -> dict[str, str]:
         if "\n" in value or "\r" in value or "\x00" in value or len(value) > 4096:
             raise ConfigError(f"{name} 包含不允许的字符或内容过长")
         values[name] = value
-    port = values["RADAR_SMTP_PORT"].strip()
-    if port and not 1 <= _bounded_int(port, "SMTP 端口", 1, 65535) <= 65535:
-        raise ConfigError("SMTP 端口无效")
+    # _bounded_int 自身会抛出范围异常，原来的外层 `1 <= x <= 65535` 恒为 True，属死代码。
+    if values["RADAR_SMTP_PORT"].strip():
+        _bounded_int(values["RADAR_SMTP_PORT"].strip(), "SMTP 端口", 1, 65535)
     for name in ("RADAR_EMAIL_FROM",):
         if values[name].strip() and not EMAIL_RE.fullmatch(values[name].strip()):
             raise ConfigError(f"邮箱格式不正确：{values[name]}")
@@ -311,6 +312,12 @@ def _bounded_int(value: Any, label: str, minimum: int, maximum: int) -> int:
     if not minimum <= number <= maximum:
         raise ConfigError(f"{label}必须在 {minimum}–{maximum} 之间")
     return number
+
+
+def _minutes_of_day(value: str) -> int:
+    """把 HH:MM 转成当天分钟数，用于检查多任务触发时间是否过于集中。"""
+    hours, minutes = value.split(":", 1)
+    return int(hours) * 60 + int(minutes)
 
 
 def editable_view(
@@ -393,7 +400,7 @@ def editable_view(
             }
             for document_type in DOCUMENT_TYPES
         },
-        "llm": {
+                "llm": {
             "enabled": bool(llm.get("enabled", True)),
             "provider": str(llm.get("provider", "deepseek")),
             # 显示运行时实际生效值：进程环境变量优先（如 opencodezen 的 free 档网关）；方案凭据覆盖在 ConfigStore.get 中补齐
@@ -565,6 +572,7 @@ class ConfigStore:
         # 但绝不在持有配置锁时执行，避免删除方案期间整个控制台卡死。
         self._task_lock = threading.Lock()
         self._initialized = not self._managed
+        self._history_cache: tuple[tuple[Any, ...], float, list[dict[str, Any]]] | None = None
         self._initial_files = dict(initial_files)
         self._initial_env_files = dict(initial_env_files)
         self._initial_meta = deepcopy(initial_meta)
@@ -678,15 +686,27 @@ class ConfigStore:
             return deepcopy(self._read_registry()["profiles"])
 
     def history(
-        self, profile: str | None = None, document_type: str | None = None, limit: int = 200
+        self, profile: str | None = None, document_type: str | None = None, limit: int = 200, refresh: bool = False
     ) -> list[dict[str, Any]]:
         """读取各方案 running 的日报与投递记录（outputs/**/history.jsonl），
-        并兼容升级前的日报文件（status=legacy）。按时间倒序。"""
+        并兼容升级前的日报文件（status=legacy）。按时间倒序。
+
+        结果带 60 秒 TTL 缓存：发送记录面板频繁刷新时避免每次全量重扫 outputs；
+        refresh=True 强制重扫。
+        """
         self._ensure_initialized()
         try:
             safe_limit = max(0, min(int(limit), 500))
         except (TypeError, ValueError):
             safe_limit = 200
+        cache_key = (profile, document_type, safe_limit)
+        if (
+            not refresh
+            and self._history_cache is not None
+            and self._history_cache[0] == cache_key
+            and time.time() - self._history_cache[1] < 60
+        ):
+            return self._history_cache[2]
         ids = [self._validate_profile_id(profile)] if profile else list(self.profile_files)
         entries: list[dict[str, Any]] = []
         seen_digests: set[str] = set()
@@ -752,7 +772,9 @@ class ConfigStore:
         if document_type:
             entries = [entry for entry in entries if entry["document_type"] == document_type]
         entries.sort(key=lambda entry: entry["timestamp"], reverse=True)
-        return entries[:safe_limit]
+        result = entries[:safe_limit]
+        self._history_cache = (cache_key, time.time(), result)
+        return result
 
     @staticmethod
     def _validate_profile_name(name: Any) -> str:
@@ -862,7 +884,7 @@ class ConfigStore:
                 raise ConfigError("方案不存在")
             source = self._profile_dir(profile)
 
-        # 计划任务操作可能耗时数十秒：在配置锁之外执行，避免阻塞其他请求。
+        # 计划任务删除可能耗时数十秒：在配置锁之外执行，避免阻塞其他请求。
         with self._task_lock:
             self._remove_tasks(profile)
 
@@ -1028,7 +1050,24 @@ class ConfigStore:
                     "enabled": enabled, "task_name": task_name, "frequency": frequency,
                     "time": schedule_time, "day_of_week": day,
                 }
-        return {"schedules": applied}
+        # 错峰提醒：同一天触发且间隔不足 10 分钟的任务会并发请求外部 API，
+        # 容易触发限流（如 Semantic Scholar 429）。仅提示、不阻止应用。
+        warnings = []
+        active = [(doc, row) for doc, row in applied.items() if row.get("enabled")]
+        for (doc1, row1), (doc2, row2) in itertools.combinations(active, 2):
+            if row1["frequency"] == row2["frequency"] == "weekly" and row1["day_of_week"] != row2["day_of_week"]:
+                continue
+            minutes = abs(_minutes_of_day(row2["time"]) - _minutes_of_day(row1["time"]))
+            if 0 < minutes < 10:
+                warnings.append(
+                    f"{DOCUMENT_TYPE_LABELS[doc1]}（{row1['time']}）与"
+                    f"{DOCUMENT_TYPE_LABELS[doc2]}（{row2['time']}）触发间隔仅 {minutes} 分钟，"
+                    "建议错开 10 分钟以上，避免外部接口并发限流"
+                )
+        result: dict[str, Any] = {"schedules": applied}
+        if warnings:
+            result["warnings"] = warnings
+        return result
 
     def stop_schedule(self, profile: str) -> dict[str, str]:
         """停用该方案的全部 Windows 计划任务（旧版混合任务与分类任务）。"""
@@ -1047,6 +1086,84 @@ class ConfigStore:
             # 原子写回（与 save 一致），避免 copy2 覆盖中途崩溃损坏配置
             _atomic_write_text(path, backup.read_text(encoding="utf-8"))
             return self.get(profile)
+
+    def read_output_file(self, profile: str, name: str) -> tuple[bytes, str]:
+        """读取方案 outputs 目录下的单个产物文件（日报/dashboard/记录 JSON），供发送记录面板直接打开。
+
+        name 可含子目录（如 journal/digest_xxx.md）。文件名白名单 + resolve 后父目录校验，
+        杜绝路径穿越读取 outputs 之外的任意文件。
+        """
+        profile = self._validate_profile_id(profile)
+        parts = name.replace("\\", "/").split("/")
+        if (
+            not name
+            or len(name) > 240
+            or any(part in {"", ".", ".."} for part in parts)
+            or not re.fullmatch(r"[A-Za-z0-9_.\-/]+", name)
+        ):
+            raise ConfigError("文件名无效")
+        outputs_root = (self._profile_dir(profile) / "outputs").resolve()
+        path = (outputs_root / name.replace("\\", "/")).resolve()
+        if not str(path).startswith(str(outputs_root) + os.sep) or not path.is_file():
+            raise ConfigError("文件不存在")
+        content_type = {
+            ".html": "text/html; charset=utf-8",
+            ".json": "application/json; charset=utf-8",
+            ".md": "text/plain; charset=utf-8",
+        }.get(path.suffix.lower(), "application/octet-stream")
+        return path.read_bytes(), content_type
+
+    def maintenance_targets(self) -> list[dict[str, Any]]:
+        """列出 profiles 根目录下的敏感残留（删除方案回收目录、凭据备份），供用户在控制台手动清理。
+
+        只列不删；删除需用户在前端逐项勾选确认后调用 cleanup_maintenance。
+        """
+        self._ensure_initialized()
+        root = self.profiles_root
+        targets: list[dict[str, Any]] = []
+        for pattern, label in (
+            (".trash", "已删除方案的回收目录（含旧凭据副本）"),
+            (".env-backup", "旧版根级凭据备份"),
+            (".private-backup-*", "私有备份目录（可能含凭据副本）"),
+        ):
+            for path in sorted(root.glob(pattern)):
+                try:
+                    size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+                except OSError:
+                    size = 0
+                targets.append({"path": str(path), "label": label, "size": size})
+        return targets
+
+    def cleanup_maintenance(self, raw_targets: Any) -> dict[str, Any]:
+        """删除用户在控制台明确勾选的维护目标。
+
+        只允许删除 profiles 根目录下的 .trash / .env-backup / .private-backup-* 隐藏目录，
+        任何其他路径一律拒绝，绝不越界删除。
+        """
+        self._ensure_initialized()
+        if not isinstance(raw_targets, list) or not raw_targets:
+            raise ConfigError("请先勾选要清理的目录")
+        root = self.profiles_root.resolve()
+        allowed_names = (".trash", ".env-backup")
+        removed: list[str] = []
+        refused: list[str] = []
+        for raw in raw_targets:
+            try:
+                path = Path(str(raw)).resolve()
+            except OSError:
+                refused.append(str(raw))
+                continue
+            if (
+                not str(path).startswith(str(root) + os.sep)
+                or path == root
+                or not (path.name in allowed_names or path.name.startswith(".private-backup-"))
+                or not path.is_dir()
+            ):
+                refused.append(str(raw))
+                continue
+            shutil.rmtree(path)
+            removed.append(str(path))
+        return {"removed": removed, "refused": refused}
 
 
 class RadarUIHandler(BaseHTTPRequestHandler):
@@ -1117,8 +1234,17 @@ class RadarUIHandler(BaseHTTPRequestHandler):
                         profile=query.get("profile", [None])[0],
                         document_type=query.get("type", [None])[0],
                         limit=int((query.get("limit") or ["200"])[0]),
+                        refresh=query.get("refresh", ["0"])[0] not in {"0", "false", ""},
                     ),
                 })
+            elif parsed.path == "/api/outputs/file":
+                query = parse_qs(parsed.query)
+                data, content_type = self.store.read_output_file(
+                    query.get("profile", ["basic"])[0], str(query.get("name", [""])[0])
+                )
+                self._send(HTTPStatus.OK, data, content_type)
+            elif parsed.path == "/api/maintenance":
+                self._json(HTTPStatus.OK, {"ok": True, "targets": self.store.maintenance_targets()})
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "页面不存在"})
         except Exception as exc:
@@ -1193,6 +1319,13 @@ class RadarUIHandler(BaseHTTPRequestHandler):
                 self.store.stop_schedule(self._profile())
                 self._json(HTTPStatus.OK, {"ok": True, "message": "Windows 推送计划已停止"})
                 return
+            if api_path == "/api/maintenance/cleanup":
+                cleaned = self.store.cleanup_maintenance(self._body().get("targets"))
+                message = f"已清理 {len(cleaned['removed'])} 个目录" + (
+                    f"，拒绝 {len(cleaned['refused'])} 个无效路径" if cleaned["refused"] else ""
+                )
+                self._json(HTTPStatus.OK, {"ok": True, "data": cleaned, "message": message})
+                return
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "接口不存在"})
                 return
@@ -1224,19 +1357,26 @@ def main() -> int:
     args = parser.parse_args()
     pid_file = Path(args.pid_file).expanduser()
     pid_file.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        server = ThreadingHTTPServer((args.host, args.port), RadarUIHandler)
-    except OSError as exc:
+    # 端口被占用时自动向后找可用端口（最多 20 个），双击启动不再因撞端口直接失败。
+    server: ThreadingHTTPServer | None = None
+    port = args.port
+    for offset in range(20):
+        try:
+            server = ThreadingHTTPServer((args.host, port), RadarUIHandler)
+            break
+        except OSError:
+            port = args.port + offset + 1
+    if server is None:
         print(
-            f"无法启动控制台：端口 {args.port} 已被占用。\n"
-            "可能已有旧的文献雷达控制台在运行。请关闭旧窗口后重试，"
-            "或使用 --port 指定其它端口。\n"
-            f"（系统信息：{exc}）",
+            f"无法启动控制台：端口 {args.port}–{args.port + 19} 均被占用。\n"
+            "可能已有旧的文献雷达控制台在运行，请关闭旧窗口后重试。",
             file=sys.stderr,
         )
         return 2
+    if port != args.port:
+        print(f"端口 {args.port} 已被占用，本次改用 {port}。")
     pid_file.write_text(str(os.getpid()), encoding="ascii")
-    url = f"http://{args.host}:{args.port}/"
+    url = f"http://{args.host}:{port}/"
     print(f"文献雷达控制台：{url}")
     print("按 Ctrl+C 停止。")
     if not args.no_browser:
