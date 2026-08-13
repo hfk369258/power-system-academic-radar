@@ -19,6 +19,7 @@ param(
     [switch]$EnableIEEE,
     [switch]$EnableElsevier,
     [switch]$Disable,
+    [switch]$Remove,
     [switch]$DryRun,
     [switch]$Force
 )
@@ -40,12 +41,23 @@ if ([string]::IsNullOrWhiteSpace($PluginRoot)) {
     $PluginRoot = (Resolve-Path $PluginRoot).Path
 }
 
-if ($Disable) {
+if ($Remove) {
+    # 删除任务（方案删除/旧版混合任务迁移时使用）
     $existing = Get-ScheduledTask -TaskName $TaskName -TaskPath $TaskPath -ErrorAction SilentlyContinue
     if ($null -ne $existing) {
         Unregister-ScheduledTask -TaskName $TaskName -TaskPath $TaskPath -Confirm:$false
     }
-    Write-Host "Disabled category task: $TaskPath$TaskName"
+    Write-Host "Removed scheduled task: $TaskPath$TaskName"
+    return
+}
+
+if ($Disable) {
+    # 真正的「停用」：保留任务定义，仅禁用触发，与 UI「停止任务」文案一致
+    $existing = Get-ScheduledTask -TaskName $TaskName -TaskPath $TaskPath -ErrorAction SilentlyContinue
+    if ($null -ne $existing) {
+        Disable-ScheduledTask -TaskName $TaskName -TaskPath $TaskPath | Out-Null
+    }
+    Write-Host "Disabled scheduled task: $TaskPath$TaskName"
     return
 }
 

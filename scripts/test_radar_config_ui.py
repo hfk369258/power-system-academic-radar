@@ -2,6 +2,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from email.message import Message
 from pathlib import Path
 from unittest import mock
 
@@ -183,7 +184,7 @@ class RadarConfigUITests(unittest.TestCase):
             run.return_value = mock.Mock(returncode=0, stdout="ok", stderr="")
             applied = self.store.apply_schedule("basic")
         self.assertEqual(run.call_count, 4)
-        self.assertIn("-Disable", run.call_args_list[0].args[0])
+        self.assertIn("-Remove", run.call_args_list[0].args[0])  # 旧版混合任务：删除
         command = run.call_args_list[1].args[0]
         self.assertIn("-Frequency", command)
         self.assertIn("Weekly", command)
@@ -271,7 +272,7 @@ class DynamicProfileStoreTests(unittest.TestCase):
         self.assertEqual(renamed["id"], created["id"])
         self.assertTrue((self.profiles_root / created["id"] / "config.json").exists())
 
-    def test_delete_disables_four_tasks_and_moves_files_to_trash(self):
+    def test_delete_removes_four_tasks_and_moves_files_to_trash(self):
         created = self.store.create_profile("待删除", "basic")
         source = self.profiles_root / created["id"]
         with mock.patch.object(ui.subprocess, "run") as run:
@@ -312,6 +313,57 @@ class DynamicProfileStoreTests(unittest.TestCase):
         self.assertNotEqual(first_raw["profile"]["state_file"], second_raw["profile"]["state_file"])
         self.assertNotEqual(first_raw["profile"]["output_dir"], second_raw["profile"]["output_dir"])
         self.assertNotEqual(first["task_prefix"], second["task_prefix"])
+
+    def test_disable_uses_disable_switch_and_remove_uses_remove_switch(self):
+        created = self.store.create_profile("开关语义", "basic")
+        with mock.patch.object(ui.subprocess, "run") as run:
+            run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+            self.store._disable_tasks(created["id"])
+            self.assertEqual(len(run.call_args_list), 4)
+            self.assertTrue(all(call.args[0][-1] == "-Disable" for call in run.call_args_list))
+            run.reset_mock()
+            self.store._remove_tasks(created["id"])
+            self.assertEqual(len(run.call_args_list), 4)
+            self.assertTrue(all(call.args[0][-1] == "-Remove" for call in run.call_args_list))
+
+
+class RadarUIHandlerSecurityTests(unittest.TestCase):
+    def make_handler(self, command: str, headers: dict[str, str]):
+        # 跳过 HTTP 服务器的 socket 初始化，只测试请求校验逻辑
+        handler = ui.RadarUIHandler.__new__(ui.RadarUIHandler)
+        handler.command = command
+        message = Message()
+        for key, value in headers.items():
+            message[key] = value
+        handler.headers = message
+        return handler
+
+    def test_local_origin_write_is_allowed(self):
+        handler = self.make_handler("POST", {"Host": "127.0.0.1:8765", "Origin": "http://127.0.0.1:8765"})
+        handler._require_local_request()
+        handler._require_same_site_write()  # 不应抛异常
+
+    def test_same_origin_fetch_metadata_is_allowed(self):
+        handler = self.make_handler("PUT", {"Host": "localhost:8765", "Sec-Fetch-Site": "same-origin"})
+        handler._require_local_request()
+        handler._require_same_site_write()
+
+    def test_form_post_without_origin_is_rejected(self):
+        # 跨站 <form> 提交不带 Origin 也不带 Sec-Fetch-Site：必须拒绝
+        handler = self.make_handler("POST", {"Host": "127.0.0.1:8765"})
+        handler._require_local_request()
+        with self.assertRaisesRegex(ui.ConfigError, "来源标记"):
+            handler._require_same_site_write()
+
+    def test_foreign_origin_is_rejected(self):
+        handler = self.make_handler("DELETE", {"Host": "127.0.0.1:8765", "Origin": "https://evil.example.com"})
+        with self.assertRaisesRegex(ui.ConfigError, "其他网站"):
+            handler._require_same_site_write()
+
+    def test_foreign_host_is_rejected(self):
+        handler = self.make_handler("GET", {"Host": "attacker.example.com"})
+        with self.assertRaisesRegex(ui.ConfigError, "本机地址"):
+            handler._require_local_request()
 
 
 if __name__ == "__main__":

@@ -268,6 +268,7 @@
       ['RADAR_SMTP_USER','SMTP 登录账号'], ['RADAR_SMTP_PASSWORD','SMTP 密码/授权码'],
       ['RADAR_EMAIL_FROM','发件邮箱'], ['RADAR_EMAIL_TO','环境变量备用收件人（逗号分隔）']
     ];
+    const sensitiveKeys = new Set(['DEEPSEEK_API_KEY','SEMANTIC_SCHOLAR_API_KEY','IEEE_XPLORE_API_KEY','ELSEVIER_API_KEY','RADAR_SMTP_PASSWORD']);
     const llmSources = {
       deepseek: { name: 'DeepSeek 官方', base_url: 'https://api.deepseek.com/chat/completions', model: 'deepseek-v4-flash' },
       bailian: { name: '阿里云百炼', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'deepseek-v3' },
@@ -326,8 +327,9 @@
       clearTimeout(toast.timer); toast.timer = setTimeout(() => el.className = 'toast', 2600);
     }
     function chineseError(error, fallback = '操作失败，请重试') {
+      if (error && error.serverError) return error.message; // 后端已翻译，直接透传
       const message = String(error?.message || error || '');
-      if (/Failed to fetch|NetworkError|fetch/i.test(message)) return '无法连接本地控制台，请关闭旧窗口后重新打开桌面快捷方式';
+      if (/^Failed to fetch$/i.test(message) || /NetworkError/i.test(message)) return '无法连接本地控制台，请关闭旧窗口后重新打开桌面快捷方式';
       if (/Cannot read|undefined|null|is not a function/i.test(message)) return '页面数据不完整，请关闭旧控制台窗口后重新打开最新版';
       if (/JSON|Unexpected token/i.test(message)) return '本地服务返回的数据格式有误，请重新启动控制台';
       if (/timeout|timed out/i.test(message)) return '操作超时，请稍后重试';
@@ -369,7 +371,7 @@
       let result;
       try { result = await response.json(); }
       catch { throw new Error('本地服务返回的数据格式有误，请重新启动控制台'); }
-      if (!response.ok || !result.ok) throw new Error(result.error || '操作失败');
+      if (!response.ok || !result.ok) throw Object.assign(new Error(result.error || '操作失败'), { serverError: true });
       return result;
     }
     async function load(profile = state.profile) {
@@ -638,7 +640,38 @@
 
     function renderCredentials() {
       const grid = $('credentialGrid'); grid.replaceChildren();
-      credentialFields.forEach(([key,label]) => { const field=document.createElement('label'); field.className='field'; const title=document.createTextNode(label); const input=document.createElement('input'); input.type='text'; input.value=state.data.credentials?.[key] || ''; input.autocomplete='off'; input.dataset.envKey=key; input.setAttribute('aria-label',label); input.addEventListener('input',()=>{state.data.credentials[key]=input.value;credentialsChanged();}); field.append(title,input); grid.append(field); });
+      credentialFields.forEach(([key,label]) => {
+        const field=document.createElement('label'); field.className='field';
+        const title=document.createTextNode(label);
+        const input=document.createElement('input');
+        input.value=state.data.credentials?.[key] || '';
+        input.autocomplete='off';
+        input.dataset.envKey=key;
+        input.setAttribute('aria-label',label);
+        input.addEventListener('input',()=>{state.data.credentials[key]=input.value;credentialsChanged();});
+        if (sensitiveKeys.has(key)) {
+          input.type='password';
+          input.autocomplete='new-password';
+          input.spellcheck=false;
+          const wrap=document.createElement('span');
+          wrap.style.cssText='display:flex;gap:6px;align-items:center';
+          const toggle=document.createElement('button');
+          toggle.type='button'; toggle.className='btn icon'; toggle.textContent='👁'; toggle.title='显示/隐藏';
+          toggle.setAttribute('aria-label',`显示${label}`);
+          toggle.addEventListener('click',()=>{
+            const show=input.type==='password';
+            input.type=show?'text':'password';
+            toggle.textContent=show?'🙈':'👁';
+            toggle.setAttribute('aria-label',(show?'隐藏':'显示')+label);
+          });
+          wrap.append(input,toggle);
+          field.append(title,wrap);
+        } else {
+          input.type='text';
+          field.append(title,input);
+        }
+        grid.append(field);
+      });
     }
 
     function setupPanels() {
@@ -663,7 +696,7 @@
     $('saveBtn').addEventListener('click', save); $('reloadBtn').addEventListener('click', () => { if (confirmLoss()) load(); });
     $('saveCredentialsBtn').addEventListener('click', saveCredentials); $('testLlmBtn').addEventListener('click', testLlm); $('applyScheduleBtn').addEventListener('click', applySchedule); $('stopScheduleBtn').addEventListener('click', stopSchedule);
     $('historyType').addEventListener('change', loadHistory); $('refreshHistoryBtn').addEventListener('click', loadHistory);
-    $('restoreBtn').addEventListener('click', async () => { if (!confirm('恢复到上一次保存前的配置？当前内容将被替换。')) return; try { const result = await api(`/api/restore?profile=${state.profile}`, { method: 'POST', body: '{}' }); state.data = normalizeData(clone(result.data), state.profile); render(); setDirty(false); toast(result.message); } catch (error) { toast(chineseError(error, '配置恢复失败'), true); } });
+    $('restoreBtn').addEventListener('click', async () => { if (!confirmLoss()) return; if (!confirm('恢复到上一次保存前的配置？当前内容将被替换。')) return; try { const result = await api(`/api/restore?profile=${state.profile}`, { method: 'POST', body: '{}' }); state.data = normalizeData(clone(result.data), state.profile); render(); setDirty(false); toast(result.message); } catch (error) { toast(chineseError(error, '配置恢复失败'), true); } });
     window.addEventListener('error', event => { event.preventDefault(); toast(chineseError(event.error || event.message, '页面运行失败，请重新启动控制台'), true); });
     window.addEventListener('unhandledrejection', event => { event.preventDefault(); toast(chineseError(event.reason, '操作失败，请重试'), true); });
     window.addEventListener('beforeunload', e => { if (state.dirty || state.credentialsDirty) { e.preventDefault(); e.returnValue = ''; } });

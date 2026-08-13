@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.3.2 — 可靠性加固与抓取提速（2026-08-13）
+
+### 引擎（scripts/power_system_radar.py）
+- 数据源并发抓取：OpenAlex/Crossref/arXiv/Semantic Scholar/IEEE/Scopus/RSS 以最多 4 路并行抓取，各源独立节流互不阻塞；NAPSTIC 两源保持串行低频访问；
+- 源级故障全面隔离：任何单个数据源的意外异常（含配置值错误、连接重置、SSL 失败等）只告警跳过，不再拖垮整轮推送；
+- 状态文件保护：损坏的状态文件自动备份为 `state.json.corrupt-*` 并告警，不再被静默清空（避免历史文献重复推送轰炸）；写入前增加进程内互斥；
+- 运行锁加固：锁文件记录 pid 与 token，仅当持锁进程确实已死才接管 stale 锁；退出时只删除自己创建的锁，stale 阈值 2h → 6h；
+- 通知逐渠道隔离：邮件/企微/Webhook 任一渠道异常只记录失败，不再导致整轮崩溃或误判；至少一个渠道送达即记入已推送状态，避免已送达渠道次日重复轰炸；
+- LLM 重试改为指数退避 + 抖动，429 时遵循 `Retry-After`；错误日志对多风格 API Key 统一打码；
+- 安全：RSS 源拒绝内网/环回/云元数据地址（防 SSRF）；arXiv 默认 HTTPS 并校验证书；digest 与企微 Markdown 对标题/期刊/作者等外部元数据转义；
+- 修正 `backfill_enabled` 代码兜底默认值为 `false`（与模板、README 一致）；
+- 跨源去重改为「别名键集合」：同一论文在不同源（DOI 键 / 规范化标题键 / 来源 ID 键）任一别名命中已推送状态或本轮记录即合并，不再“换键重生”造成重复推送；
+- 新增可选输出保留策略 `profile.output_retention_days`（默认 0 = 永久保留）：超过天数的日报/仪表盘/记录文件自动清理，`history.jsonl` 与状态文件不受影响；
+- 移除三处死代码（render_markdown / _chip_colors / group_items_by_primary_keyword）。
+
+### 中文源（scripts/cn_napstic.py）
+- 节流收口到 `http_get` 内部：每次请求前统一保证最小间隔，`--full` 详情补全不再以 0.6s 折半间隔请求；
+- 重试改为指数退避 + 抖动；404/410/400/403 等永久性错误不再重试；
+- 翻页终止不再假设每页固定 10 条（平台改版时不再静默漏抓后半期），页数上限可配置；
+- 详情补全失败改为计数告警，不再静默丢弃；`article_id` 提取不再写死 `010` 前缀。
+
+### 控制台（scripts/radar_config_ui.py + radar_control_panel.html）
+- CSRF/DNS rebinding 加固：写接口要求同源 Origin 或 `Sec-Fetch-Site: same-origin`，拒绝跨站表单等无来源标记的写请求；
+- 敏感凭据（API Key / SMTP 授权码）改为密码框 + 显示/隐藏切换；
+- 删除方案/停止任务时计划任务 subprocess 移出配置锁，不再卡死整个控制台；
+- 「恢复上次保存」改为原子写回；发送记录面板对半截 history 文件容错；
+- 计划任务语义修正：`setup_windows_task.ps1` 的 `-Disable` 改为真正的「停用」（保留任务、禁用触发，与 UI「停止任务」文案一致），新增 `-Remove` 用于删除（方案删除与旧版混合任务迁移）；
+- 端口被占用时输出中文诊断（exe 无窗口模式弹 MessageBox 并写入 `logs/console-ui.log`）；
+- 前端错误提示精确化（后端中文报错直接透传，不再误报“无法连接”）。
+
+### 测试
+- 测试从 60 项增至 74 项：新增状态损坏备份、源异常隔离、部分渠道送达、stale 锁接管、RSS 地址拦截、CSRF 来源校验、NAPSTIC 重试/ID 提取等回归测试。
+
 ## v0.3.1 — 发送记录面板（2026-08-10）
 
 ### 新增：发送记录

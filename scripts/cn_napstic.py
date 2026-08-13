@@ -25,8 +25,10 @@ cn_napstic.py — 从「国家学术搜索」(NAPSTIC, search.napstic.cn) 抓取
 
 import argparse
 import json
+import random
 import re
 import sys
+import threading
 import time
 import urllib.request
 import urllib.parse
@@ -57,18 +59,37 @@ JOURNALS = {
 # ----------------------------------------------------------------------------
 # HTTP
 # ----------------------------------------------------------------------------
+_LAST_REQUEST = 0.0
+_THROTTLE_LOCK = threading.Lock()
+
+
 def http_get(url: str, timeout: int = 60, retries: int = 3, delay: float = 1.2):
-    """带 UA、超时、重试、节流的 GET（NAPSTIC 服务器较慢，超时放宽到 60s）。"""
+    """带 UA、超时、指数退避重试与全局最小间隔节流的 GET。
+
+    节流收口在这里：每次请求前保证距上一次请求至少 delay 秒，
+    调用方无需再自行 sleep（也避免了 --full 模式下实际间隔只有宣称一半的问题）。
+    404/410/400/403 等永久性错误不重试，只对瞬时失败做退避 + 抖动。
+    """
+    global _LAST_REQUEST
     last_err = None
     for i in range(retries + 1):
+        with _THROTTLE_LOCK:
+            elapsed = time.monotonic() - _LAST_REQUEST
+            if elapsed < delay:
+                time.sleep(delay - elapsed)
+            _LAST_REQUEST = time.monotonic()
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA})
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            if e.code in {400, 403, 404, 410}:
+                raise RuntimeError(f"GET {url} 失败: HTTP {e.code}（永久性错误，不重试）") from e
+            last_err = e
         except Exception as e:
             last_err = e
-            if i < retries:
-                time.sleep(2.5 * (i + 1))
+        if i < retries:
+            time.sleep(2.5 * (i + 1) + random.uniform(0, 1.0))
     raise RuntimeError(f"GET {url} 失败: {last_err}")
 
 
@@ -121,8 +142,14 @@ def parse_article_items(html: str):
             mh = re.search(r'<h4[^>]*>.*?</h4>', b, re.S)
             if mh:
                 title = _clean(re.sub(r"<[^>]+>", "", mh.group(0)))
-        mid = re.search(r"/periodical/010([a-z0-9]+)", url)
+        # 不把 "010" 写死：平台路径前缀变化时 article_id 仍能提取，保证去重键稳定。
+        # 兼容 /periodical/010<id> 与 /periodical/<path>/<id> 两种形式。
+        mid = re.search(r"/periodical/(?:010)?([a-z0-9]+)/?$", url)
         article_id = mid.group(1) if mid else ""
+        if not article_id:
+            segments = [seg for seg in url.rstrip("/").split("/") if seg]
+            if segments and re.fullmatch(r"[a-z0-9-]+", segments[-1]):
+                article_id = segments[-1]
         # 作者
         authors = [a.strip() for a in re.findall(r'<span class="highLight"[^>]*>(.*?)</span>', b)]
         authors = [a for a in authors if a]
@@ -257,23 +284,24 @@ def search_literature(query: str, size: int = 20, page: int = 1, delay: float = 
 # ----------------------------------------------------------------------------
 # 抓取
 # ----------------------------------------------------------------------------
-def fetch_issue(slug: str, year: int, issue, fetch_details: bool = False, delay: float = 1.2):
-    """抓某一期的全部文章。返回 (articles, 该期信息)。"""
+def fetch_issue(slug: str, year: int, issue, fetch_details: bool = False, delay: float = 1.2, max_pages: int = 30):
+    """抓某一期的全部文章。返回 (articles, 该期信息)。
+
+    翻页以「页面解析到 0 篇」为终止条件，不再假设每页固定 10 条
+    （平台改每页条数时旧逻辑会静默漏抓后半期）。
+    """
     jinfo = JOURNALS.get(slug, {})
     articles, page = [], 1
-    while True:
+    while page <= max_pages:
         url = (f"{BASE}/literature/oaj/{slug}?page={page}&activeYear={year}&activeIssue={issue}")
         html = http_get(url, delay=delay)
         items = parse_article_items(html)
         if not items:
             break
         articles.extend(items)
-        if len(items) < 10:
-            break
         page += 1
-        if page > 20:  # 安全上限，防止异常时无限循环
-            break
-    # 补全元信息
+    # 补全元信息（节流由 http_get 统一保证，这里不再额外 sleep）
+    detail_failed = 0
     for a in articles:
         a.setdefault("journal_cn", jinfo.get("name_cn", ""))
         a.setdefault("journal_en", jinfo.get("name_en", ""))
@@ -285,9 +313,11 @@ def fetch_issue(slug: str, year: int, issue, fetch_details: bool = False, delay:
                 det = parse_detail(http_get(a["detail_url"], delay=delay))
                 a.update(det)
                 a.setdefault("url", a["detail_url"])
-            except Exception:
-                pass
-        time.sleep(delay * 0.5)
+            except Exception as e:  # noqa: BLE001 — 单篇详情失败不影响整期
+                detail_failed += 1
+                print(f"  [warn] {slug} 详情补全失败 ({str(a.get('title_cn', ''))[:40]}): {e}", file=sys.stderr)
+    if detail_failed:
+        print(f"  [warn] {slug} {year}-{issue}: {detail_failed}/{len(articles)} 篇详情补全失败", file=sys.stderr)
     return articles
 
 
@@ -408,9 +438,11 @@ def main():
     elif args.cmd == "search":
         all_recs, total = [], 0
         for p in range(1, args.pages + 1):
-            recs, total = search_literature(args.query, size=args.size, page=p, delay=args.delay)
-            all_recs.extend(recs)
-            time.sleep(args.delay * 0.5)
+            try:
+                recs, total = search_literature(args.query, size=args.size, page=p, delay=args.delay)
+                all_recs.extend(recs)
+            except Exception as e:  # noqa: BLE001 — 单页失败不拖垮整条命令
+                print(f"[warn] 第 {p} 页检索失败: {e}", file=sys.stderr)
         if args.journal:
             all_recs = [r for r in all_recs if args.journal in (r.get("journal_cn") or "")]
         save(all_recs, args.out)

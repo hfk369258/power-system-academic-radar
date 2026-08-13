@@ -179,7 +179,6 @@ def chinese_exception_message(exc: Exception) -> str:
 def _read_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as fh:
         return json.load(fh)
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _stamp_to_iso(stamp: str) -> str:
@@ -394,7 +393,7 @@ def editable_view(
             }
             for document_type in DOCUMENT_TYPES
         },
-                "llm": {
+        "llm": {
             "enabled": bool(llm.get("enabled", True)),
             "provider": str(llm.get("provider", "deepseek")),
             # 显示运行时实际生效值：进程环境变量优先（如 opencodezen 的 free 档网关）；方案凭据覆盖在 ConfigStore.get 中补齐
@@ -562,6 +561,9 @@ class ConfigStore:
         # 的调用启用动态注册表。
         self._managed = using_defaults or profiles_root is not None or registry_path is not None
         self._lock = threading.RLock()
+        # 计划任务 subprocess 可能耗时数十秒：用独立锁串行化任务操作，
+        # 但绝不在持有配置锁时执行，避免删除方案期间整个控制台卡死。
+        self._task_lock = threading.Lock()
         self._initialized = not self._managed
         self._initial_files = dict(initial_files)
         self._initial_env_files = dict(initial_env_files)
@@ -693,7 +695,12 @@ class ConfigStore:
             if not outputs.is_dir():
                 continue
             for jsonl in sorted(outputs.rglob("history.jsonl")):
-                for line in jsonl.read_text(encoding="utf-8").splitlines():
+                try:
+                    lines_text = jsonl.read_text(encoding="utf-8")
+                except (UnicodeDecodeError, OSError):
+                    # 雷达进程可能正在写入（半截文件）：跳过该文件不影响整体面板
+                    continue
+                for line in lines_text.splitlines():
                     line = line.strip()
                     if not line:
                         continue
@@ -814,7 +821,8 @@ class ConfigStore:
             self._refresh_mappings(registry)
             return deepcopy(target)
 
-    def _disable_tasks(self, profile: str) -> None:
+    def _run_task_ops(self, profile: str, switch: str) -> None:
+        """按 switch(-Disable/-Remove) 对方案的旧版混合任务与三个分类任务执行同一操作。"""
         meta = self.profile_meta.get(profile) or {}
         task_prefix = str(meta.get("task_name", ""))
         if not task_prefix:
@@ -824,12 +832,20 @@ class ConfigStore:
             command = [
                 str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                 str(PLUGIN_ROOT / "scripts" / "setup_windows_task.ps1"),
-                "-TaskName", task_name, "-PluginRoot", str(PLUGIN_ROOT), "-Disable",
+                "-TaskName", task_name, "-PluginRoot", str(PLUGIN_ROOT), switch,
             ]
             completed = subprocess.run(command, capture_output=True, text=True, timeout=60, check=False, creationflags=_no_window_flags())
             if completed.returncode != 0:
-                detail = (completed.stderr or completed.stdout or "计划任务停用失败").strip()
+                detail = (completed.stderr or completed.stdout or "计划任务操作失败").strip()
                 raise ConfigError(chinese_exception_message(ConfigError(detail[-1200:])))
+
+    def _disable_tasks(self, profile: str) -> None:
+        """停用（保留定义、禁用触发）方案的全部计划任务，与「停止任务」文案一致。"""
+        self._run_task_ops(profile, "-Disable")
+
+    def _remove_tasks(self, profile: str) -> None:
+        """删除方案的全部计划任务（删除方案时使用）。"""
+        self._run_task_ops(profile, "-Remove")
 
     def delete_profile(self, profile: str) -> dict[str, str]:
         self._ensure_initialized()
@@ -844,22 +860,28 @@ class ConfigStore:
             target = next((row for row in rows if row["id"] == profile), None)
             if target is None:
                 raise ConfigError("方案不存在")
-            self._disable_tasks(profile)
             source = self._profile_dir(profile)
-            trash_root = (self.profiles_root / ".trash").resolve()
-            trash_root.mkdir(parents=True, exist_ok=True)
-            destination = trash_root / f"{profile}_{uuid.uuid4().hex[:10]}"
-            shutil.move(str(source), str(destination))
-            try:
-                registry["profiles"] = [row for row in rows if row["id"] != profile]
+
+        # 计划任务操作可能耗时数十秒：在配置锁之外执行，避免阻塞其他请求。
+        with self._task_lock:
+            self._remove_tasks(profile)
+
+        trash_root = (self.profiles_root / ".trash").resolve()
+        trash_root.mkdir(parents=True, exist_ok=True)
+        destination = trash_root / f"{profile}_{uuid.uuid4().hex[:10]}"
+        shutil.move(str(source), str(destination))
+        try:
+            with self._lock:
+                registry = self._read_registry()
+                registry["profiles"] = [row for row in registry["profiles"] if row["id"] != profile]
                 _atomic_write_json(self.registry_path, registry)
-            except Exception:
-                shutil.move(str(destination), str(source))
-                raise
-            self._refresh_mappings(registry)
-            result = deepcopy(target)
-            result["trash_path"] = str(destination)
-            return result
+                self._refresh_mappings(registry)
+        except Exception:
+            shutil.move(str(destination), str(source))
+            raise
+        result = deepcopy(target)
+        result["trash_path"] = str(destination)
+        return result
 
     def _path(self, profile: str) -> Path:
         self._ensure_initialized()
@@ -960,57 +982,59 @@ class ConfigStore:
         source_types = {str(source.get("type")) for source in config.get("sources") or [] if source.get("enabled")}
         schedules = config.get("type_schedules") or {}
         applied: dict[str, dict[str, Any]] = {}
-        # 迁移到分类任务时先移除旧版“全部类型混合推送”任务，避免重复发送。
-        legacy_command = [
-            str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-            str(PLUGIN_ROOT / "scripts" / "setup_windows_task.ps1"),
-            "-TaskName", str(meta["task_name"]), "-PluginRoot", str(PLUGIN_ROOT), "-Disable",
-        ]
-        legacy_result = subprocess.run(legacy_command, capture_output=True, text=True, timeout=60, check=False, creationflags=_no_window_flags())
-        if legacy_result.returncode != 0:
-            detail = (legacy_result.stderr or legacy_result.stdout or "旧计划任务停用失败").strip()
-            raise ConfigError(chinese_exception_message(ConfigError(detail[-1200:])))
-        for document_type in DOCUMENT_TYPES:
-            row = schedules.get(document_type) or {}
-            frequency = str(row.get("frequency", "daily")).lower()
-            schedule_time = str(row.get("time", ""))
-            day = str(row.get("day_of_week", "Monday"))
-            if frequency not in {"daily", "weekly"} or not TIME_RE.fullmatch(schedule_time) or day not in WEEKDAYS:
-                raise ConfigError(f"请先保存有效的{DOCUMENT_TYPE_LABELS[document_type]}推送计划")
-            task_name = f'{meta["task_name"]}_{document_type.title()}'
-            command = [
+        # 任务操作与删除/停止方案串行，且都在配置锁之外执行
+        with self._task_lock:
+            # 迁移到分类任务时先移除旧版“全部类型混合推送”任务，避免重复发送。
+            legacy_command = [
                 str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                 str(PLUGIN_ROOT / "scripts" / "setup_windows_task.ps1"),
-                "-TaskName", task_name, "-DailyTime", schedule_time,
-                "-Frequency", frequency.title(), "-DayOfWeek", day,
-                "-DocumentType", document_type,
-                "-PluginRoot", str(PLUGIN_ROOT), "-ConfigPath", str(config_path),
-                "-PythonExe", os.environ.get("RADAR_PYTHON_EXE", sys.executable), "-EnvFile", str(env_path), "-Force",
+                "-TaskName", str(meta["task_name"]), "-PluginRoot", str(PLUGIN_ROOT), "-Remove",
             ]
-            enabled = bool(row.get("enabled", document_type == "journal"))
-            if not enabled:
-                command.append("-Disable")
-            if email.get("enabled"):
-                command.append("-EnableEmail")
-            if "ieee_xplore_api" in source_types:
-                command.append("-EnableIEEE")
-            if "elsevier_scopus_api" in source_types:
-                command.append("-EnableElsevier")
-            completed = subprocess.run(command, capture_output=True, text=True, timeout=60, check=False, creationflags=_no_window_flags())
-            if completed.returncode != 0:
-                detail = (completed.stderr or completed.stdout or "计划任务更新失败").strip()
+            legacy_result = subprocess.run(legacy_command, capture_output=True, text=True, timeout=60, check=False, creationflags=_no_window_flags())
+            if legacy_result.returncode != 0:
+                detail = (legacy_result.stderr or legacy_result.stdout or "旧计划任务移除失败").strip()
                 raise ConfigError(chinese_exception_message(ConfigError(detail[-1200:])))
-            applied[document_type] = {
-                "enabled": enabled, "task_name": task_name, "frequency": frequency,
-                "time": schedule_time, "day_of_week": day,
-            }
+            for document_type in DOCUMENT_TYPES:
+                row = schedules.get(document_type) or {}
+                frequency = str(row.get("frequency", "daily")).lower()
+                schedule_time = str(row.get("time", ""))
+                day = str(row.get("day_of_week", "Monday"))
+                if frequency not in {"daily", "weekly"} or not TIME_RE.fullmatch(schedule_time) or day not in WEEKDAYS:
+                    raise ConfigError(f"请先保存有效的{DOCUMENT_TYPE_LABELS[document_type]}推送计划")
+                task_name = f'{meta["task_name"]}_{document_type.title()}'
+                command = [
+                    str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                    str(PLUGIN_ROOT / "scripts" / "setup_windows_task.ps1"),
+                    "-TaskName", task_name, "-DailyTime", schedule_time,
+                    "-Frequency", frequency.title(), "-DayOfWeek", day,
+                    "-DocumentType", document_type,
+                    "-PluginRoot", str(PLUGIN_ROOT), "-ConfigPath", str(config_path),
+                    "-PythonExe", os.environ.get("RADAR_PYTHON_EXE", sys.executable), "-EnvFile", str(env_path), "-Force",
+                ]
+                enabled = bool(row.get("enabled", document_type == "journal"))
+                if not enabled:
+                    command.append("-Disable")
+                if email.get("enabled"):
+                    command.append("-EnableEmail")
+                if "ieee_xplore_api" in source_types:
+                    command.append("-EnableIEEE")
+                if "elsevier_scopus_api" in source_types:
+                    command.append("-EnableElsevier")
+                completed = subprocess.run(command, capture_output=True, text=True, timeout=60, check=False, creationflags=_no_window_flags())
+                if completed.returncode != 0:
+                    detail = (completed.stderr or completed.stdout or "计划任务更新失败").strip()
+                    raise ConfigError(chinese_exception_message(ConfigError(detail[-1200:])))
+                applied[document_type] = {
+                    "enabled": enabled, "task_name": task_name, "frequency": frequency,
+                    "time": schedule_time, "day_of_week": day,
+                }
         return {"schedules": applied}
 
     def stop_schedule(self, profile: str) -> dict[str, str]:
         """停用该方案的全部 Windows 计划任务（旧版混合任务与分类任务）。"""
         self._ensure_initialized()
         profile = self._validate_profile_id(profile)
-        with self._lock:
+        with self._task_lock:
             self._disable_tasks(profile)
         return {"profile": profile}
 
@@ -1020,7 +1044,8 @@ class ConfigStore:
         with self._lock:
             if not backup.exists():
                 raise ConfigError("还没有可恢复的备份")
-            shutil.copy2(backup, path)
+            # 原子写回（与 save 一致），避免 copy2 覆盖中途崩溃损坏配置
+            _atomic_write_text(path, backup.read_text(encoding="utf-8"))
             return self.get(profile)
 
 
@@ -1055,6 +1080,20 @@ class RadarUIHandler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin", "")
         if origin and (urlparse(origin).hostname or "").lower() not in {"127.0.0.1", "localhost", "::1"}:
             raise ConfigError("拒绝来自其他网站的请求")
+
+    def _require_same_site_write(self) -> None:
+        """写操作额外校验：浏览器同源 fetch 一定携带 Origin 或 Sec-Fetch-Site，
+        而跨站 <form> 提交两者都不带——必须拒绝，防止本机恶意网页静默调用
+        删除方案/停止任务/回滚配置等破坏性接口（CSRF / DNS rebinding）。"""
+        origin = self.headers.get("Origin", "")
+        if origin:
+            hostname = (urlparse(origin).hostname or "").lower()
+            if hostname not in {"127.0.0.1", "localhost", "::1"}:
+                raise ConfigError("拒绝来自其他网站的请求")
+            return
+        fetch_site = (self.headers.get("Sec-Fetch-Site") or "").lower()
+        if fetch_site not in {"same-origin", "same-site"}:
+            raise ConfigError("拒绝缺少来源标记的写请求")
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
@@ -1103,6 +1142,7 @@ class RadarUIHandler(BaseHTTPRequestHandler):
     def do_PUT(self) -> None:  # noqa: N802
         try:
             self._require_local_request()
+            self._require_same_site_write()
             api_path = urlparse(self.path).path
             if api_path == "/api/profiles":
                 renamed = self.store.rename_profile(self._profile(), self._body().get("name"))
@@ -1125,6 +1165,7 @@ class RadarUIHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         try:
             self._require_local_request()
+            self._require_same_site_write()
             api_path = urlparse(self.path).path
             if api_path == "/api/profiles":
                 body = self._body()
@@ -1161,6 +1202,7 @@ class RadarUIHandler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:  # noqa: N802
         try:
             self._require_local_request()
+            self._require_same_site_write()
             if urlparse(self.path).path != "/api/profiles":
                 self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "接口不存在"})
                 return
@@ -1182,7 +1224,17 @@ def main() -> int:
     args = parser.parse_args()
     pid_file = Path(args.pid_file).expanduser()
     pid_file.parent.mkdir(parents=True, exist_ok=True)
-    server = ThreadingHTTPServer((args.host, args.port), RadarUIHandler)
+    try:
+        server = ThreadingHTTPServer((args.host, args.port), RadarUIHandler)
+    except OSError as exc:
+        print(
+            f"无法启动控制台：端口 {args.port} 已被占用。\n"
+            "可能已有旧的文献雷达控制台在运行。请关闭旧窗口后重试，"
+            "或使用 --port 指定其它端口。\n"
+            f"（系统信息：{exc}）",
+            file=sys.stderr,
+        )
+        return 2
     pid_file.write_text(str(os.getpid()), encoding="ascii")
     url = f"http://{args.host}:{args.port}/"
     print(f"文献雷达控制台：{url}")

@@ -77,12 +77,11 @@ powershell -ExecutionPolicy Bypass -File scripts\start_radar_ui.ps1
 
 ### NAPSTIC 中文文献源（CNKI 系核心期刊）
 
-- 数据来自「国家学术搜索」(search.napstic.cn)，由中信所(ISTIC)运营，期刊方自愿公开题录/摘要/DOI，非付费墙绕过；仅限个人科研低频使用，默认节流 1.5s。
+- 数据来自「国家学术搜索」(search.napstic.cn)，由中信所(ISTIC)运营，期刊方自愿公开题录/摘要/DOI，非付费墙绕过；仅限个人科研低频使用。请求最小间隔由 `cn_napstic.py` 统一保证（雷达配置默认 1.5s，CLI 默认 1.2s，含 `--full` 详情补全，不再折半）。
 - 两种源类型（无需 API Key）：
   - `napstic_search`（默认开启）：按 `keywords.chinese` 关键词组逐词检索全部中文期刊，含网络首发（`online_date`）。该接口只支持相关度排序、无法按日期过滤（实测 `sort`/`order` 参数被忽略），因此不过滤日期窗口：客户端按 `online_date` 降序排列（无日期沉底），**是否重复由已推送状态文件去重**——首次运行会推送当前最相关+最新的一批，之后只累积新上线的文献；
   - `napstic_journals`（默认关闭）：按 `journals` slug 列表逐刊抓最近 `months` 期，覆盖完整但滞后约 0.5~1.5 年；开启前请确认能接受其请求量。
-- 中文文献同样受 `journal_filter` 白名单约束（宁缺毋滥）：`chinese_ei` 内置 21 本电力领域核心/主流期刊，不在名单内的中文期刊不会进入推送（可在控制台/JSON 中增删）。
-- 中文文献同样受 `journal_filter` 白名单约束，模板已内置 `chinese_ei` 11 本刊（可在控制台/JSON 中增删）。
+- 中文文献同样受 `journal_filter` 白名单约束（宁缺毋滥）：`chinese_ei` 内置 21 本电力领域核心/主流期刊，不在名单内的中文期刊不会进入推送（可在控制台/JSON 中增删）；`napstic_journals` 逐刊源则按 `cn_napstic.JOURNALS` 内置的 11 本核心刊 slug 表抓取。
 - 已知坑：中国电力期刊 DOI 注册在 ISTIC 中国DOI系统，**不在 Crossref**（Crossref 拿不到中文刊数据）；英文姊妹刊（CSEE JPES / PCMP / MPCE）为独立英文刊，仅覆盖中文刊约 5~10% 精华，完整跟踪中文论文请用 NAPSTIC。
 - 期刊 slug 表与合规说明见 `skills/power-system-literature-radar/references/napstic/`。
 
@@ -205,6 +204,8 @@ powershell -ExecutionPolicy Bypass -File scripts\run_radar.ps1 `
 - `dashboard_*.html`：完整交互式附件；
 - `records_*.json`：结构化文献记录；
 - `logs/`：运行日志。
+
+默认永久保留历史报告；如需自动清理，可在配置 `profile` 中设置 `output_retention_days`（例如 `90` 表示只保留最近 90 天的日报/仪表盘/记录文件，`history.jsonl` 与状态文件不受影响，`0`/缺省 = 永久保留）。
 
 上述目录以及本机方案、凭据、状态文件均已加入 `.gitignore`。
 

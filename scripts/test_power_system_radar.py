@@ -2,9 +2,12 @@ import datetime as dt
 import importlib.util
 import http.client
 import json
+import os
 import sys
 import tempfile
+import time
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -193,7 +196,7 @@ class RadarStateTests(unittest.TestCase):
                     with radar.run_lock(state_path):
                         pass
 
-    def test_notification_result_requires_every_enabled_channel(self) -> None:
+    def test_empty_items_skip_notification(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             files = [root / name for name in ("digest.md", "records.json", "digest.html", "dashboard.html")]
@@ -208,6 +211,153 @@ class RadarStateTests(unittest.TestCase):
 
             self.assertFalse(delivered)
 
+    def test_partial_channel_success_counts_as_delivered(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            files = [root / name for name in ("digest.md", "records.json", "digest.html", "dashboard.html")]
+            for path in files:
+                path.write_text("test", encoding="utf-8")
+            item = {"title": "A paper", "score": 5}
+            config = {"notifications": {"email": {"enabled": True}, "wechat": {"enabled": True}}}
+
+            with mock.patch.object(radar, "send_email_digest", return_value=True), mock.patch.object(
+                radar, "send_wechat_digest", return_value=False
+            ):
+                delivered = radar.maybe_notify(config, *files, [item])
+
+            # 至少一个渠道送达即视为已推送，避免次日对已送达渠道重复轰炸
+            self.assertTrue(delivered)
+
+    def test_webhook_exception_does_not_crash_notification(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            files = [root / name for name in ("digest.md", "records.json", "digest.html", "dashboard.html")]
+            for path in files:
+                path.write_text("test", encoding="utf-8")
+            item = {"title": "A paper", "score": 5}
+            config = {
+                "notifications": {
+                    "email": {"enabled": False},
+                    "webhook": {"enabled": True, "url_env": "RADAR_WEBHOOK_URL"},
+                }
+            }
+
+            with mock.patch.object(radar, "post_webhook", side_effect=TimeoutError("boom")), mock.patch.dict(
+                os.environ, {"RADAR_WEBHOOK_URL": "http://127.0.0.1:9/hook"}
+            ):
+                delivered = radar.maybe_notify(config, *files, [item])
+
+            self.assertFalse(delivered)
+
+    def test_state_corruption_is_backed_up_not_silently_cleared(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.json"
+            path.write_text('{"seen": [broken json', encoding="utf-8")
+
+            result = radar.read_state(path)
+
+            self.assertEqual(result, set())
+            backups = list(path.parent.glob("state.json.corrupt-*"))
+            self.assertEqual(len(backups), 1)
+            self.assertFalse(path.exists())
+
+    def test_fetch_enabled_sources_isolates_unexpected_source_exception(self) -> None:
+        config = {
+            "sources": [
+                {"name": "openalex", "type": "openalex", "enabled": True},
+                {"name": "crossref", "type": "crossref", "enabled": True},
+            ]
+        }
+        with mock.patch.object(radar, "fetch_openalex", side_effect=ValueError("bad config value")), mock.patch.object(
+            radar, "fetch_crossref", return_value=[{"title": "healthy"}]
+        ), mock.patch.object(radar, "load_manual_exports", return_value=[]):
+            result = radar.fetch_enabled_sources(config, radar.utc_today(), Path.cwd(), 20)
+
+        self.assertEqual([item["title"] for item in result], ["healthy"])
+
+    def test_run_lock_takes_over_when_owner_pid_is_dead(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            lock_path = state_path.with_name(state_path.name + ".lock")
+            lock_path.write_text(json.dumps({"pid": 99999999, "token": "dead", "started": "x"}), encoding="utf-8")
+
+            with radar.run_lock(state_path):
+                self.assertTrue(lock_path.exists())
+            self.assertFalse(lock_path.exists())
+
+    def test_feed_url_blocked_for_private_and_metadata_addresses(self) -> None:
+        self.assertTrue(radar.feed_url_blocked("http://169.254.169.254/latest/meta-data"))
+        self.assertTrue(radar.feed_url_blocked("http://127.0.0.1:8000/feed"))
+        self.assertTrue(radar.feed_url_blocked("http://192.168.1.10/rss"))
+        self.assertTrue(radar.feed_url_blocked("file:///etc/passwd"))
+        self.assertFalse(radar.feed_url_blocked("https://ieeexplore.ieee.org/rss/TOC/example.xml"))
+        self.assertFalse(radar.feed_url_blocked("https://export.arxiv.org/rss/cs"))
+
+    def test_same_doi_different_title_formatting_merges_into_one_record(self) -> None:
+        config = {
+            "scoring": {"min_score": 0},
+            "journal_filter": {"enabled": False},
+            "keywords": {
+                "core": ["optimal power flow"],
+                "weights_allowed": {},
+            },
+        }
+        first = {
+            "title": "A Deep Learning Approach for Optimal Power Flow Calculation",
+            "doi": "10.1/same-paper",
+        }
+        second = {
+            "title": "A Deep-Learning Approach for Optimal Power-Flow Calculation",
+            "doi": "10.1/same-paper",
+        }
+        result = radar.dedupe_and_score([first, second], config, set())
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["doi"], "10.1/same-paper")
+
+    def test_seen_normalized_title_key_blocks_doi_keyed_item(self) -> None:
+        """跨源同一论文：A 源按标题键入状态，B 源带 DOI 也必须判为已推送。"""
+        config = {"scoring": {"min_score": 0}, "journal_filter": {"enabled": False}}
+        item = {"title": "Grid Forming Energy Storage Systems Control Review", "doi": "10.2/new-doi"}
+        title_key = radar.normalized_title_key(item)
+        self.assertTrue(title_key)
+        result = radar.dedupe_and_score([item], config, {title_key})
+        self.assertEqual(result, [])
+
+    def test_prune_old_outputs_only_removes_expired_report_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+            old_digest = output_dir / "digest_20200101_000000_000000.md"
+            old_dash = output_dir / "dashboard_20200101_000000_000000.html"
+            fresh = output_dir / "digest_20260101_000000_000000.md"
+            history = output_dir / "history.jsonl"
+            for path in (old_digest, old_dash, fresh, history):
+                path.write_text("x", encoding="utf-8")
+            old_time = time.time() - 100 * 86400
+            fresh_time = time.time() - 2 * 86400
+            os.utime(old_digest, (old_time, old_time))
+            os.utime(old_dash, (old_time, old_time))
+            os.utime(fresh, (fresh_time, fresh_time))
+            os.utime(history, (old_time, old_time))
+
+            radar._prune_old_outputs(output_dir, 30)
+
+            self.assertFalse(old_digest.exists())
+            self.assertFalse(old_dash.exists())
+            self.assertTrue(fresh.exists())
+            self.assertTrue(history.exists())  # history 永不清理
+
+    def test_prune_old_outputs_disabled_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+            old = output_dir / "digest_20200101_000000_000000.md"
+            old.write_text("x", encoding="utf-8")
+            old_time = time.time() - 100 * 86400
+            os.utime(old, (old_time, old_time))
+
+            radar._prune_old_outputs(output_dir, 0)
+
+            self.assertTrue(old.exists())
+
     def test_main_backfills_unseen_items_when_recent_window_is_empty(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -217,6 +367,7 @@ class RadarStateTests(unittest.TestCase):
                 "profile": {
                     "lookback_days": 14,
                     "backfill_lookback_days": 365,
+                    "backfill_enabled": True,
                     "candidate_results_per_source": 200,
                     "daily_target_items": 2,
                     "state_file": str(state_path),
@@ -579,6 +730,62 @@ class RadarStateTests(unittest.TestCase):
 
         self.assertIn("英文题名", md)
         self.assertIn("Grid-Forming Energy Storage Research", md)
+
+
+class NapsticHttpTests(unittest.TestCase):
+    """cn_napstic.http_get 的重试与节流行为（不访问真实网络）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        import cn_napstic
+
+        cls.cn = cn_napstic
+
+    def test_permanent_404_is_not_retried(self) -> None:
+        attempts = {"count": 0}
+
+        def fake_open(req, timeout=None):
+            attempts["count"] += 1
+            raise urllib.error.HTTPError(req.full_url, 404, "Not Found", None, None)
+
+        with mock.patch.object(self.cn.urllib.request, "urlopen", fake_open), mock.patch.object(
+            self.cn.time, "sleep"
+        ):
+            with self.assertRaisesRegex(RuntimeError, "HTTP 404"):
+                self.cn.http_get("https://search.napstic.cn/x", retries=3, delay=0)
+
+        self.assertEqual(attempts["count"], 1)
+
+    def test_transient_failure_is_retried_with_backoff(self) -> None:
+        attempts = {"count": 0}
+
+        def fake_open(req, timeout=None):
+            attempts["count"] += 1
+            if attempts["count"] < 4:
+                raise TimeoutError("slow server")
+            raise urllib.error.HTTPError(req.full_url, 500, "Server Error", None, None)
+
+        with mock.patch.object(self.cn.urllib.request, "urlopen", fake_open), mock.patch.object(
+            self.cn.time, "sleep"
+        ):
+            with self.assertRaisesRegex(RuntimeError, "HTTP Error 500"):
+                self.cn.http_get("https://search.napstic.cn/x", retries=3, delay=0)
+
+        self.assertEqual(attempts["count"], 4)
+
+    def test_article_id_extraction_does_not_require_010_prefix(self) -> None:
+        html = (
+            '<div class="article_item">'
+            '<h4><a href="/periodical/zzz/article-123" title="一篇论文"></a></h4>'
+            '<span class="highLight">张三</span>'
+            '<span class="submissionPage">1-5</span>'
+            '<span class="abstracLabel">摘要：</span><span class="ignore">内容</span>'
+            "</div></div></div>"
+        )
+        articles = self.cn.parse_article_items(html)
+
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(articles[0]["source_id"], "article-123")
 
 
 if __name__ == "__main__":

@@ -13,18 +13,22 @@ import csv
 import datetime as dt
 import hashlib
 import http.client
+import ipaddress
 import json
 import os
+import random
 import re
 import smtplib
 import ssl
 import sys
 import textwrap
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from email.message import EmailMessage
 from pathlib import Path
@@ -41,6 +45,8 @@ except ImportError:  # pragma: no cover
 
 USER_AGENT = "power-system-academic-radar/0.1 (+local Codex plugin)"
 LAST_SEMANTIC_SCHOLAR_REQUEST = 0.0
+_SS_THROTTLE_LOCK = threading.Lock()  # 并发抓取多个数据源时保护全局节流时间戳
+_STATE_WRITE_LOCK = threading.Lock()  # 进程内保护状态文件「读-合并-写」序列
 
 
 def utc_today() -> dt.date:
@@ -96,14 +102,13 @@ def read_http_json(request: urllib.request.Request, timeout: int, attempts: int 
 
 def semantic_scholar_json(url: str, api_key: str = "", timeout: int = 30, min_interval: float = 1.2) -> dict[str, Any]:
     global LAST_SEMANTIC_SCHOLAR_REQUEST
-    elapsed = time.monotonic() - LAST_SEMANTIC_SCHOLAR_REQUEST
-    if elapsed < min_interval:
-        time.sleep(min_interval - elapsed)
-    headers = {"x-api-key": api_key} if api_key else {}
-    try:
-        return http_json_headers(url, headers=headers, timeout=timeout)
-    finally:
+    with _SS_THROTTLE_LOCK:
+        elapsed = time.monotonic() - LAST_SEMANTIC_SCHOLAR_REQUEST
+        if elapsed < min_interval:
+            time.sleep(min_interval - elapsed)
         LAST_SEMANTIC_SCHOLAR_REQUEST = time.monotonic()
+    headers = {"x-api-key": api_key} if api_key else {}
+    return http_json_headers(url, headers=headers, timeout=timeout)
 
 
 def http_text(url: str, timeout: int = 30, verify_ssl: bool = True) -> str:
@@ -412,26 +417,27 @@ def fetch_arxiv(config: dict[str, Any], source: dict[str, Any], since: dt.date, 
         "sortBy": "submittedDate",
         "sortOrder": "descending",
     }
-    # arXiv sometimes fails because of local CA-store or endpoint policy issues.
-    # Try configurable endpoints in order, then let the caller log a single source warning.
+    # arXiv 优先 HTTPS 并默认校验证书，保证摘要与元数据不被中间人篡改；
+    # 源配置显式列出 http 端点并关闭校验时才降级（用于个别内网/代理环境）。
     bases = source.get("base_urls") or [
-        "http://export.arxiv.org/api/query",
         "https://export.arxiv.org/api/query",
+        "http://export.arxiv.org/api/query",
     ]
     root = None
     last_error: Exception | None = None
     for base in bases:
         try:
             url = str(base) + "?" + urllib.parse.urlencode(params)
+            verify = bool(source.get("verify_ssl", not str(base).startswith("http://")))
             root = ET.fromstring(
                 http_text(
                     url,
                     timeout=int(source.get("timeout_seconds", 30)),
-                    verify_ssl=bool(source.get("verify_ssl", False)),
+                    verify_ssl=verify,
                 )
             )
             break
-        except (urllib.error.URLError, TimeoutError, ET.ParseError) as exc:
+        except (urllib.error.URLError, TimeoutError, ET.ParseError, OSError) as exc:
             last_error = exc
     if root is None:
         raise last_error or RuntimeError("arXiv API failed")
@@ -710,15 +716,37 @@ def fetch_elsevier_scopus(config: dict[str, Any], source: dict[str, Any], since:
     return items
 
 
+_BLOCKED_FEED_HOSTS = {"localhost", "169.254.169.254", "metadata.google.internal", "metadata"}
+
+
+def feed_url_blocked(url: str) -> bool:
+    """阻止 RSS 抓取指向内网/环回/云元数据地址，避免配置被篡改时变成 SSRF 探针。"""
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError:
+        return True
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        return True
+    host = parsed.hostname.lower()
+    if host in _BLOCKED_FEED_HOSTS or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_private or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def fetch_rss(config: dict[str, Any], source: dict[str, Any], since: dt.date, limit: int) -> list[dict[str, Any]]:
     items = []
     for url in source.get("urls", []):
-        if "example.com" in url:
+        url = normalize_space(url)
+        if feed_url_blocked(url):
+            print(f"[warn] rss url blocked (non-public address): {url[:120]}", file=sys.stderr)
             continue
         try:
             root = ET.fromstring(http_text(url))
         except Exception as exc:  # noqa: BLE001
-            print(f"[warn] rss failed {url}: {exc}", file=sys.stderr)
+            print(f"[warn] rss failed {url[:120]}: {safe_error(exc)}", file=sys.stderr)
             continue
         for entry in iter_feed_entries(root):
             item = clean_item({**entry, "source": source["name"], "origin": url})
@@ -1384,7 +1412,14 @@ def enrich_missing_abstracts(items: list[dict[str, Any]], config: dict[str, Any]
 
 
 def dedupe_and_score(items: list[dict[str, Any]], config: dict[str, Any], seen: set[str]) -> list[dict[str, Any]]:
+    """筛选、评分与去重。
+
+    每篇记录生成一组「别名键」：DOI 键、规范化标题键（长标题时）、来源 ID 键。
+    - 历史状态里命中任一别名即视为已推送（跨源同一论文不再“换键重生”）；
+    - 本轮内任一别名相同即合并，保留相关度最高的一条。
+    """
     by_key: dict[str, dict[str, Any]] = {}
+    alias_owner: dict[str, str] = {}
     min_score = int((config.get("scoring") or {}).get("min_score", 4))
     for item in items:
         if not item.get("title"):
@@ -1394,18 +1429,24 @@ def dedupe_and_score(items: list[dict[str, Any]], config: dict[str, Any], seen: 
             continue
         score, hits = keyword_score(item, config)
         stable_key = item_key(item)
-        key = normalized_title_key(item) or stable_key
+        title_key = normalized_title_key(item)
+        key = title_key or stable_key
         item["score"] = score
         item["hits"] = hits
         item["journal_filter_hits"] = journal_hits
         item["key"] = stable_key
         item["dedupe_key"] = key
-        item["seen_before"] = key in seen or stable_key in seen
+        aliases = [alias for alias in (stable_key, title_key, key) if alias]
+        item["seen_before"] = any(alias in seen for alias in aliases)
         src = str(item.get("source", ""))
         if score < min_score and not (src.startswith(("manual", "napstic")) or "napstic" in src.lower()):
             continue
-        if key not in by_key or score > int(by_key[key].get("score", 0)):
-            by_key[key] = item
+        # 任一别名命中已有记录时并入同一 canonical 键，避免同 DOI 不同标题写法漏合并
+        canonical = next((alias_owner[alias] for alias in aliases if alias in alias_owner), key)
+        for alias in aliases:
+            alias_owner.setdefault(alias, canonical)
+        if canonical not in by_key or score > int(by_key[canonical].get("score", 0)):
+            by_key[canonical] = item
     # 先按发布日期倒序，再用稳定排序把相关性分数作为第一优先级。
     ranked = sorted(by_key.values(), key=lambda x: x.get("published", ""), reverse=True)
     ranked.sort(key=lambda x: int(x.get("score", 0)), reverse=True)
@@ -1420,55 +1461,140 @@ def read_state(path: Path | None) -> set[str]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
+        # 状态文件损坏时不能当作「从没推送过」：那会导致历史文献全部重推轰炸。
+        # 把损坏文件备份出来供人工检查，并告警；宁可丢失新增记录也不重复推送。
+        backup = path.with_name(f"{path.name}.corrupt-{dt.datetime.now():%Y%m%d_%H%M%S}")
+        try:
+            path.replace(backup)
+            print(f"[warn] state file corrupt, backed up to {backup}; starting with empty seen-set", file=sys.stderr)
+        except OSError as exc:
+            print(f"[warn] state file corrupt and backup failed: {safe_error(exc)}", file=sys.stderr)
         return set()
-    return set(data.get("seen", []))
+    except OSError as exc:
+        print(f"[warn] cannot read state file {path}: {safe_error(exc)}", file=sys.stderr)
+        return set()
+    seen = data.get("seen")
+    if not isinstance(seen, list):
+        print(f"[warn] state file {path} has unexpected structure; ignoring contents", file=sys.stderr)
+        return set()
+    return {str(key) for key in seen if str(key)}
 
 
 def write_state(path: Path | None, keys: Iterable[str]) -> None:
     if not path:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    existing = read_state(path)
-    existing.update(keys)
-    temp_path = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    with _STATE_WRITE_LOCK:
+        existing = read_state(path)
+        existing.update(str(key) for key in keys)
+        temp_path = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        try:
+            temp_path.write_text(json.dumps({"seen": sorted(existing)}, ensure_ascii=False, indent=2), encoding="utf-8")
+            # os.replace 在同一文件系统内为原子替换，避免任务中断留下半截 JSON。
+            os.replace(temp_path, path)
+        finally:
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
+
+
+def _pid_alive(pid: int) -> bool:
+    """Windows 上判断进程是否存活；无法判断时返回 True（保守，不抢活进程的锁）。"""
+    if pid <= 0:
+        return False
     try:
-        temp_path.write_text(json.dumps({"seen": sorted(existing)}, ensure_ascii=False, indent=2), encoding="utf-8")
-        # os.replace 在同一文件系统内为原子替换，避免任务中断留下半截 JSON。
-        os.replace(temp_path, path)
-    finally:
-        if temp_path.exists():
-            temp_path.unlink()
+        import ctypes
+
+        process = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if process:
+            ctypes.windll.kernel32.CloseHandle(process)
+            return True
+        return False
+    except Exception:  # noqa: BLE001 — 非 Windows 或权限不足时保守处理
+        return True
 
 
 @contextmanager
-def run_lock(path: Path | None, stale_seconds: int = 7200) -> Iterator[None]:
-    """阻止同一配置被定时任务和手动命令并发执行。"""
+def run_lock(path: Path | None, stale_seconds: int = 6 * 3600) -> Iterator[None]:
+    """阻止同一配置被定时任务和手动命令并发执行。
+
+    - 锁文件记录 pid 与随机 token；清理 stale 锁时先看进程是否还活着；
+    - 退出时只删除自己创建的那把锁（比对 token），不误删其他进程刚建的锁。
+    """
     if path is None:
         yield
         return
 
     lock_path = path.with_name(f"{path.name}.lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    if lock_path.exists() and time.time() - lock_path.stat().st_mtime > stale_seconds:
-        lock_path.unlink()
+
+    # 尽力原子地清理 stale 锁：能确认持锁进程已死才删；无法确认时按 mtime 兜底。
+    if lock_path.exists():
+        remove = False
+        try:
+            info = json.loads(lock_path.read_text(encoding="utf-8"))
+            if not _pid_alive(int(info.get("pid", -1))):
+                remove = True
+        except (json.JSONDecodeError, OSError, ValueError, KeyError, TypeError):
+            try:
+                remove = time.time() - lock_path.stat().st_mtime > stale_seconds
+            except OSError:
+                remove = False
+        if remove:
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:
+                pass
 
     try:
         descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError as exc:
         raise RuntimeError(f"Radar is already running for this state file: {path}") from exc
 
+    payload = json.dumps(
+        {"pid": os.getpid(), "token": os.urandom(8).hex(), "started": dt.datetime.now().isoformat()}
+    )
     try:
-        os.write(descriptor, f"pid={os.getpid()} started={dt.datetime.now().isoformat()}\n".encode("utf-8"))
+        os.write(descriptor, payload.encode("utf-8"))
         os.close(descriptor)
         descriptor = -1
         yield
     finally:
         if descriptor >= 0:
-            os.close(descriptor)
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
         try:
-            lock_path.unlink()
-        except FileNotFoundError:
+            if lock_path.exists() and lock_path.read_text(encoding="utf-8").strip() == payload:
+                lock_path.unlink()
+        except OSError:
             pass
+
+
+def _prune_old_outputs(output_dir: Path, retention_days: int) -> None:
+    """按配置清理超过保留天数的历史报告文件。
+
+    `profile.output_retention_days`（默认 0 = 永久保留）。只清理当次运行同目录的
+    日报/仪表盘/记录文件，`history.jsonl` 与状态文件永不清理。
+    """
+    retention_days = max(0, int(retention_days or 0))
+    if retention_days <= 0:
+        return
+    cutoff = time.time() - retention_days * 86400
+    removed = 0
+    for pattern in ("digest_*.md", "digest_*.html", "dashboard_*.html", "records_*.json"):
+        for path in output_dir.glob(pattern):
+            try:
+                if path.stat().st_mtime < cutoff:
+                    path.unlink()
+                    removed += 1
+            except OSError:
+                continue
+    if removed:
+        print(f"[info] pruned {removed} output files older than {retention_days} days", file=sys.stderr)
 
 
 def write_outputs(items: list[dict[str, Any]], config: dict[str, Any], root: Path) -> tuple[Path, Path, Path, Path]:
@@ -1489,6 +1615,7 @@ def write_outputs(items: list[dict[str, Any]], config: dict[str, Any], root: Pat
     md_path.write_text(render_digest_markdown(items, config), encoding="utf-8")
     html_path.write_text(render_digest_html(items, config, daily_brief), encoding="utf-8")
     dash_path.write_text(render_dashboard_html(items, config), encoding="utf-8")
+    _prune_old_outputs(output_dir, int(profile.get("output_retention_days", 0)))
     return md_path, json_path, html_path, dash_path
 
 
@@ -1544,7 +1671,7 @@ def interpret_item_with_deepseek_retry(
     fallback: dict[str, str],
     api_key: str,
 ) -> dict[str, str]:
-    """重试瞬时失败，并将英文摘要缺少中文译文视为不完整响应。"""
+    """重试瞬时失败（指数退避 + 抖动），并将英文摘要缺少中文译文视为不完整响应。"""
     attempts = max(1, int(llm_config.get("attempts", 2)))
     delay = max(0.0, float(llm_config.get("retry_delay_seconds", 1.0)))
     last_error: Exception | None = None
@@ -1555,10 +1682,22 @@ def interpret_item_with_deepseek_retry(
             if abstract and not contains_cjk(abstract) and not normalize_space(result.get("abstract_zh")):
                 raise ValueError("DeepSeek response omitted abstract_zh")
             return result
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if attempt + 1 >= attempts:
+                break
+            if exc.code == 429:
+                try:
+                    retry_after = float(exc.headers.get("Retry-After", 0) or 0)
+                except ValueError:
+                    retry_after = 0.0
+                time.sleep(retry_after or delay * (2 ** attempt) + random.uniform(0, 0.5))
+            else:
+                time.sleep(delay * (2 ** attempt) + random.uniform(0, 0.5))
         except Exception as exc:  # noqa: BLE001
             last_error = exc
             if attempt + 1 < attempts:
-                time.sleep(delay)
+                time.sleep(delay * (2 ** attempt) + random.uniform(0, 0.5))
     assert last_error is not None
     raise last_error
 
@@ -1759,93 +1898,12 @@ def fallback_daily_brief(items: list[dict[str, Any]]) -> dict[str, Any]:
 
 def safe_error(exc: Exception) -> str:
     message = normalize_space(str(exc))
-    message = re.sub(r"sk-[A-Za-z0-9_-]+", "sk-***", message)
+    # 各服务商密钥风格不一：打码所有疑似密钥片段，避免 API Key / SMTP 授权码进日志。
+    message = re.sub(r"sk-[A-Za-z0-9_-]{6,}", "sk-***", message)
+    message = re.sub(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]{8,}", "Bearer ***", message)
+    message = re.sub(r"(?i)(apikey|api_key|key|token|password|secret)\s*[=:]\s*[A-Za-z0-9._~+/=-]{8,}", r"\1=***", message)
     return message[:240]
 
-
-def render_markdown(items: list[dict[str, Any]], config: dict[str, Any]) -> str:
-    title = (config.get("profile") or {}).get("name", "电力系统文献雷达")
-    interpretation = config.get("interpretation") or {}
-    configured_max = int(interpretation.get("max_items", 0))
-    max_interpreted = len(items) if configured_max <= 0 else configured_max
-    lines = [
-        f"# {title}：中文文献解读",
-        "",
-        f"- 生成时间：{dt.datetime.now().isoformat(timespec='seconds')}",
-        f"- 本次记录数：{len(items)}",
-        "- 解读说明：以下“创新点/价值”基于题名、摘要、来源元数据和关键词命中自动推断，正式引用前请阅读全文核实。",
-        "",
-    ]
-    if items:
-        lines.extend(["## 优先阅读建议", ""])
-        for item in items[: min(5, len(items))]:
-            lines.append(
-                f"- **{item.get('title')}**：相关度 {item.get('score')}，建议关注 {', '.join(infer_focus_terms(item)[:3]) or '模型与算例'}。"
-            )
-        lines.append("")
-    for i, item in enumerate(items, 1):
-        authors = ", ".join(item.get("authors") or [])
-        meta = " | ".join(p for p in [item.get("venue"), str(item.get("year") or ""), item.get("source")] if p)
-        analysis = item.get("interpretation")
-        oa_label = "OA" if item.get("is_oa") is True else "non-OA/unknown"
-        oa_url = item.get("oa_url") or ""
-        journal_hits = ", ".join(item.get("journal_filter_hits") or [])
-        access_lines = [
-            f"- Journal filter: {journal_hits}",
-            f"- OA status: {oa_label}" + (f" | OA URL: {oa_url}" if oa_url else ""),
-        ]
-        lines.extend(
-            [
-                f"## {i}. {item.get('title')}",
-                "",
-                f"- 相关度评分：{item.get('score')}（{', '.join(item.get('hits') or [])}）",
-                f"- 来源信息：{meta}",
-                f"- 作者：{authors}" if authors else "- 作者：",
-                f"- DOI: {item.get('doi') or ''}",
-                f"- 链接：{item.get('url') or ''}",
-                f"- 是否已见过：{item.get('seen_before')}",
-                "",
-            ]
-        )
-        lines.extend(access_lines + [""])
-        if i <= max_interpreted and should_full_analyze(item, config) and analysis:
-            lines.extend(
-                [
-                    "### 中文解读",
-                    "",
-                    f"- **研究问题**：{analysis['problem']}",
-                    f"- **方法路线**：{analysis['method']}",
-                    f"- **可能创新点**：{analysis['innovation']}",
-                    f"- **应用场景**：{analysis['application']}",
-                    f"- **对你课题的借鉴价值**：{analysis['value']}",
-                    f"- **需要阅读全文核实**：{analysis['caveat']}",
-                    "",
-                ]
-            )
-        elif not should_full_analyze(item, config):
-            lines.extend(
-                [
-                    "### Abstract-only note",
-                    "",
-                    "No reliable OA full-text URL was found, so this item is limited to title/source/abstract and is not treated as full-text analysis.",
-                    "",
-                ]
-            )
-        abstract = normalize_space(item.get("abstract"))
-        abstract_zh = normalize_space(item.get("abstract_zh"))
-        is_zh = contains_cjk(item.get("title"))
-        if abstract:
-            lines.extend(
-                [
-                    f"### {'中文摘要（原文）' if is_zh else '英文摘要（原文）'}",
-                    "",
-                    textwrap.shorten(abstract, width=900, placeholder=" ..."),
-                    "",
-                ]
-            )
-            if not is_zh and abstract_zh:
-                lines.extend(["### 中文翻译", "", textwrap.shorten(abstract_zh, width=1200, placeholder=" ..."), ""])
-    return "\n".join(lines)
 
 
 def render_digest_markdown(items: list[dict[str, Any]], config: dict[str, Any]) -> str:
@@ -1887,29 +1945,29 @@ def render_digest_markdown(items: list[dict[str, Any]], config: dict[str, Any]) 
         focus_label = "LLM+电力系统重点关注" if is_llm_power_item(item) else "常规电力系统优化/调度"
         lines.extend(
             [
-                f"## {i}. {item.get('title')}",
+                f"## {i}. {md_escape(item.get('title'))}",
                 "",
                 "### 1. 基本信息",
                 "",
-                f"- 期刊/来源：{item.get('venue') or item.get('source') or ''}",
-                f"- 年份：{item.get('year') or ''}",
-                f"- 作者：{authors}",
-                f"- DOI：{item.get('doi') or ''}",
-                f"- 链接：{item.get('url') or ''}",
-                f"- OA链接：{item.get('oa_url') or ''}",
+                f"- 期刊/来源：{md_escape(item.get('venue') or item.get('source') or '')}",
+                f"- 年份：{md_escape(item.get('year') or '')}",
+                f"- 作者：{md_escape(authors)}",
+                f"- DOI：{md_escape(item.get('doi') or '')}",
+                f"- 链接：{safe_http_url(item.get('url'))}",
+                f"- OA链接：{safe_http_url(item.get('oa_url'))}",
                 "",
                 "### 2. 筛选判断",
                 "",
                 f"- 输出类型：{level_label}",
                 f"- 重点方向：{focus_label}",
-                f"- 期刊命中：{journal_hits}",
-                f"- 关键词命中：{hits}",
+                f"- 期刊命中：{md_escape(journal_hits)}",
+                f"- 关键词命中：{md_escape(hits)}",
                 f"- 相关度评分：{item.get('score')}",
                 "",
             ]
         )
         if item.get("title_en"):
-            lines.extend([f"- 英文题名：{item.get('title_en')}", ""])
+            lines.extend([f"- 英文题名：{md_escape(item.get('title_en'))}", ""])
         if level in {"oa_full_analysis", "abstract_only"} and analysis:
             analysis_title = "### 3. OA开放版本整体分析" if level == "oa_full_analysis" else "### 3. 基于摘要的中文分析"
             basis_note = "以下分析基于开放版本/摘要与元数据。" if level == "oa_full_analysis" else "以下分析仅基于摘要与元数据，不等同于全文精读。"
@@ -2248,22 +2306,6 @@ def extract_keyword_terms(item: dict[str, Any]) -> list[str]:
     return terms
 
 
-def group_items_by_primary_keyword(items: list[dict[str, Any]]) -> list[tuple[str, list[dict[str, Any]]]]:
-    """每篇论文只进入一个主关键词区块，避免总览重复和页面失控。"""
-    groups: dict[str, list[dict[str, Any]]] = {}
-    for item in items:
-        terms = extract_keyword_terms(item)
-        primary = terms[0] if terms else "其他"
-        groups.setdefault(primary, []).append(item)
-    return sorted(groups.items(), key=lambda pair: (-len(pair[1]), pair[0].lower()))
-
-
-def _chip_colors() -> list[str]:
-    return ["#0f3460", "#e94560", "#f0a500", "#2d5a87", "#16213e", "#7b8496",
-            "#1e6091", "#d68910", "#c44569", "#0d3b66", "#1a936f", "#e07a5f",
-            "#3d5a80", "#98c1d9", "#ee6c4d", "#293241", "#a44a3f", "#4a7c59",
-            "#6c5b7b", "#355c7d", "#c06c84", "#f67280", "#6c5b7b", "#4ecdc4",
-            "#45b7d1"][:25]
 
 
 def build_keyword_paper_map(items: list[dict[str, Any]]) -> dict[str, list[int]]:
@@ -2279,6 +2321,14 @@ def build_keyword_paper_map(items: list[dict[str, Any]]) -> dict[str, list[int]]
 
 def html_escape(text: str) -> str:
     return (text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+def md_escape(text: Any) -> str:
+    """转义外部元数据中的 Markdown 控制字符，防止标题/摘要注入链接、代码块或格式。"""
+    value = str(text or "")
+    for char in ("\\", "`", "*", "_", "[", "]", "#", ">", "|"):
+        value = value.replace(char, "\\" + char)
+    return value
 
 
 def safe_http_url(value: Any) -> str:
@@ -2483,36 +2533,58 @@ def source_fetch_limit(config: dict[str, Any], source: dict[str, Any], max_overr
     return max(1, min(requested, cap)) if cap else max(1, requested)
 
 
+def _run_source(config: dict[str, Any], source: dict[str, Any], since: dt.date, root: Path, limit: int) -> list[dict[str, Any]]:
+    source_type = source.get("type")
+    if source_type == "openalex":
+        return fetch_openalex(config, source, since, limit)
+    if source_type == "crossref":
+        return fetch_crossref(config, source, since, limit)
+    if source_type == "arxiv":
+        return fetch_arxiv(config, source, since, limit)
+    if source_type == "semantic_scholar":
+        return fetch_semantic_scholar(config, source, since, limit)
+    if source_type == "ieee_xplore_api":
+        return fetch_ieee(config, source, since, limit)
+    if source_type == "elsevier_scopus_api":
+        return fetch_elsevier_scopus(config, source, since, limit)
+    if source_type == "rss":
+        return fetch_rss(config, source, since, limit)
+    if source_type == "napstic_search":
+        return fetch_napstic_search(config, source, since, limit)
+    if source_type == "napstic_journals":
+        return fetch_napstic_journals(config, source, since, limit)
+    print(f"[warn] unknown source type skipped: {source_type}", file=sys.stderr)
+    return []
+
+
 def fetch_enabled_sources(config: dict[str, Any], since: dt.date, root: Path, max_override: int | None) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    for source in config.get("sources", []):
-        if not source.get("enabled", False):
-            continue
+    """抓取所有启用的数据源。
+
+    - 非 NAPSTIC 源（OpenAlex/Crossref/arXiv/S2/IEEE/Scopus/RSS）小并发并行抓取，
+      各自独立节流，互不阻塞；NAPSTIC 两个源保持串行以遵守其低频访问约定。
+    - 单个源的任何故障都被隔离：只告警跳过，绝不拖垮整轮推送。
+    """
+    enabled = [source for source in config.get("sources", []) if source.get("enabled", False)]
+    napstic_types = {"napstic_search", "napstic_journals"}
+    parallel_sources = [source for source in enabled if source.get("type") not in napstic_types]
+    napstic_sources = [source for source in enabled if source.get("type") in napstic_types]
+
+    def fetch_one(source: dict[str, Any]) -> list[dict[str, Any]]:
         limit = source_fetch_limit(config, source, max_override)
-        source_type = source.get("type")
         try:
-            if source_type == "openalex":
-                items.extend(fetch_openalex(config, source, since, limit))
-            elif source_type == "crossref":
-                items.extend(fetch_crossref(config, source, since, limit))
-            elif source_type == "arxiv":
-                items.extend(fetch_arxiv(config, source, since, limit))
-            elif source_type == "semantic_scholar":
-                items.extend(fetch_semantic_scholar(config, source, since, limit))
-            elif source_type == "ieee_xplore_api":
-                items.extend(fetch_ieee(config, source, since, limit))
-            elif source_type == "elsevier_scopus_api":
-                items.extend(fetch_elsevier_scopus(config, source, since, limit))
-            elif source_type == "rss":
-                items.extend(fetch_rss(config, source, since, limit))
-            elif source_type == "napstic_search":
-                items.extend(fetch_napstic_search(config, source, since, limit))
-            elif source_type == "napstic_journals":
-                items.extend(fetch_napstic_journals(config, source, since, limit))
-            else:
-                print(f"[warn] unknown source type skipped: {source_type}", file=sys.stderr)
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ET.ParseError, http.client.IncompleteRead) as exc:
-            print(f"[warn] source failed {source.get('name')}: {exc}", file=sys.stderr)
+            return _run_source(config, source, since, root, limit)
+        except Exception as exc:  # noqa: BLE001 — 源级故障绝不应拖垮整轮
+            print(f"[warn] source failed {source.get('name')}: {safe_error(exc)}", file=sys.stderr)
+            return []
+
+    items: list[dict[str, Any]] = []
+    if parallel_sources:
+        workers = min(4, len(parallel_sources))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for batch in pool.map(fetch_one, parallel_sources):
+                items.extend(batch)
+    for source in napstic_sources:
+        items.extend(fetch_one(source))
     items.extend(load_manual_exports(config, root))
     return items
 
@@ -2554,39 +2626,51 @@ def maybe_notify(config: dict[str, Any], md_path: Path, json_path: Path, html_pa
     digest = md_path.read_text(encoding="utf-8")
     html_body = html_path.read_text(encoding="utf-8") if html_path.exists() else ""
     count = len(items)
-    enabled_count = 0
-    delivered_count = 0
+    results: dict[str, bool] = {}
 
     email = notifications.get("email") or {}
     if email.get("enabled"):
-        enabled_count += 1
-        if send_email_digest(email, digest, md_path, json_path, html_body, dash_path, count):
-            delivered_count += 1
+        try:
+            results["email"] = send_email_digest(email, digest, md_path, json_path, html_body, dash_path, count)
+        except Exception as exc:  # noqa: BLE001 — 单渠道失败不得拖垮整轮
+            print(f"[warn] email notify failed: {safe_error(exc)}", file=sys.stderr)
+            results["email"] = False
 
     wechat = notifications.get("wechat") or {}
     if wechat.get("enabled"):
-        enabled_count += 1
-        if send_wechat_digest(wechat, items, md_path, count):
-            delivered_count += 1
+        try:
+            results["wechat"] = send_wechat_digest(wechat, items, md_path, count)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[warn] wechat notify failed: {safe_error(exc)}", file=sys.stderr)
+            results["wechat"] = False
 
     webhook = notifications.get("webhook") or {}
     if webhook.get("enabled"):
-        enabled_count += 1
         url = os.environ.get(webhook.get("url_env", "RADAR_WEBHOOK_URL"))
         if not url:
             print("[warn] webhook enabled but URL env is missing", file=sys.stderr)
+            results["webhook"] = False
         else:
-            post_webhook(
-                url,
-                {
-                    "text": f"Power-system radar found {count} records.",
-                    "digest_path": str(md_path),
-                    "json_path": str(json_path),
-                },
-            )
-            delivered_count += 1
+            try:
+                post_webhook(
+                    url,
+                    {
+                        "text": f"Power-system radar found {count} records.",
+                        "digest_path": str(md_path),
+                        "json_path": str(json_path),
+                    },
+                )
+                results["webhook"] = True
+            except Exception as exc:  # noqa: BLE001
+                print(f"[warn] webhook notify failed: {safe_error(exc)}", file=sys.stderr)
+                results["webhook"] = False
 
-    return enabled_count > 0 and delivered_count == enabled_count
+    # 任一启用渠道送达成功即视为「本轮已推送」（记入状态），避免部分失败导致
+    # 已送达渠道次日重复轰炸；失败渠道在日志中可见，网络恢复后可手动重发。
+    delivered_channels = [name for name, ok in results.items() if ok]
+    if delivered_channels:
+        print(f"[info] delivered via: {', '.join(delivered_channels)}", file=sys.stderr)
+    return bool(delivered_channels)
 
 
 def append_history(
@@ -2716,9 +2800,9 @@ def render_wechat_markdown(items: list[dict[str, Any]], md_path: Path, count: in
         title = item.get("title") or "(untitled)"
         score = item.get("score")
         venue = item.get("venue") or item.get("source") or ""
-        url = item.get("url") or item.get("doi") or ""
-        lines.append(f"{i}. **{title}**")
-        lines.append(f"   分数: {score} | {venue}")
+        url = safe_http_url(item.get("url")) or safe_http_url(item.get("doi"))
+        lines.append(f"{i}. **{md_escape(title)}**")
+        lines.append(f"   分数: {score} | {md_escape(venue)}")
         if url:
             lines.append(f"   {url}")
     lines.extend(["", f"完整 digest: {md_path}"])
@@ -2778,7 +2862,7 @@ def main() -> int:
     target_zh = max(0, int(profile.get("daily_target_zh", 0)))
     if not profile.get("daily_target_en") and not profile.get("daily_target_zh"):
         target_en, target_zh = daily_target, 0
-    backfill_enabled = bool(profile.get("backfill_enabled", True))
+    backfill_enabled = bool(profile.get("backfill_enabled", False))  # 与模板/README 一致：默认关闭历史回填
     candidate_limit = args.max_results or int(profile.get("candidate_results_per_source", profile.get("max_results_per_source", 25)))
     backfill_days = max(lookback, int(profile.get("backfill_lookback_days", lookback)))
     state_path = None if args.no_state else resolve_path(profile.get("state_file"), root)

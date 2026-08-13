@@ -61,7 +61,24 @@ def main() -> int:
         if found:
             os.environ["RADAR_PYTHON_EXE"] = found
 
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), ui.RadarUIHandler)
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", args.port), ui.RadarUIHandler)
+    except OSError as exc:
+        message = (
+            f"无法启动控制台：端口 {args.port} 已被占用。\n"
+            "可能已有旧的文献雷达控制台在运行。\n"
+            "请关闭旧窗口后重试，或用 --port 指定其它端口。\n\n"
+            f"（系统信息：{exc}）"
+        )
+        print(message, file=sys.stderr)
+        if getattr(sys, "frozen", False):
+            try:
+                import ctypes
+
+                ctypes.windll.user32.MessageBoxW(0, message, "电力系统文献雷达控制台", 0x10)  # MB_ICONERROR
+            except Exception:  # noqa: BLE001 — 弹窗失败也不影响日志落盘
+                pass
+        raise SystemExit(2)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{args.port}/"
     print(f"文献雷达控制台：{url}")
