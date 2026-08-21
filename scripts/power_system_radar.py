@@ -1754,11 +1754,13 @@ def enrich_interpretations(items: list[dict[str, Any]], config: dict[str, Any]) 
     configured_llm_max = int(llm_config.get("max_items", 0))
     max_llm = len(analysis_items) if configured_llm_max <= 0 else min(configured_llm_max, len(analysis_items))
     llm_ok = 0
+    attempted = 0
     fail_reasons: list[str] = []
     for item in analysis_items[:max_llm]:
         if contains_cjk(item.get("title")):
             # 中文文献本就提供中文摘要与规则解读，无需 LLM 翻译；跳过以节省配额
             continue
+        attempted += 1
         cache_key = f"v2::{llm_model(llm_config)}::{item.get('key') or item_key(item)}"
         # 跨源命中：同篇论文换个稳定键（如另一源给了 DOI）也能按规范化标题命中缓存
         title_key = normalized_title_key(item)
@@ -1797,7 +1799,7 @@ def enrich_interpretations(items: list[dict[str, Any]], config: dict[str, Any]) 
                 fail_reasons.append(reason)
     if cache_dirty and cache_path is not None:
         _llm_cache_save(cache_path, cache)
-    if not llm_ok:
+    if attempted and not llm_ok:
         _LLM_NOTICE = f"⚠ LLM 中文解读本轮不可用（{', '.join(fail_reasons) or '未知错误'}），以下为本地规则摘要"
     elif fail_reasons:
         _LLM_NOTICE = f"⚠ 部分文献 LLM 解读失败（{', '.join(fail_reasons)}），已用本地规则摘要补充"
