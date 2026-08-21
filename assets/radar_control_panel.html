@@ -48,11 +48,12 @@
 
     .shell { max-width: 1440px; margin: 0 auto; padding: 30px clamp(16px, 3vw, 42px) 64px; }
 
-    /* ---- 顶栏 ---- */
-    .topbar { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 24px; }
+    /* ---- 顶栏（紧凑单行） ---- */
+    .topbar { display: flex; justify-content: space-between; gap: 24px; align-items: center; margin-bottom: 14px; }
+    .topbar > div:first-child { display: flex; align-items: center; gap: 16px; min-width: 0; }
     h1 {
       display: flex; align-items: center; gap: 12px;
-      margin: 0 0 6px; font-size: clamp(24px, 3vw, 32px); line-height: 1.2; letter-spacing: -.02em; font-weight: 700;
+      margin: 0; font-size: clamp(20px, 2.4vw, 26px); line-height: 1.2; letter-spacing: -.02em; font-weight: 700; white-space: nowrap;
     }
     h1::before {
       content: ""; width: 38px; height: 38px; flex: none; border-radius: 12px;
@@ -63,7 +64,7 @@
         linear-gradient(135deg, var(--brand-bright), var(--brand-deep));
       box-shadow: 0 6px 16px rgba(15, 122, 85, .35), inset 0 1px 0 rgba(255,255,255,.35);
     }
-    .subtitle { margin: 0; color: var(--muted); max-width: 640px; }
+    .subtitle { margin: 4px 0 0; color: var(--muted); max-width: 640px; font-size: 13px; }
     .status {
       display: flex; gap: 9px; align-items: center; padding: 9px 16px;
       border: 1px solid var(--line); border-radius: 999px; background: var(--card);
@@ -78,12 +79,15 @@
     /* ---- 工具栏 ---- */
     .toolbar {
       position: sticky; top: 12px; z-index: 20;
-      display: flex; flex-wrap: wrap; justify-content: space-between; gap: 14px; align-items: center;
-      padding: 13px 14px; margin-bottom: 22px;
+      display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center;
+      gap: 8px 10px;
+      padding: 11px 14px; margin-bottom: 18px;
       border: 1px solid rgba(225, 233, 228, .85); border-radius: var(--radius);
       background: rgba(255, 255, 255, .82); backdrop-filter: blur(16px) saturate(1.4);
       box-shadow: var(--shadow-md);
     }
+    .toolbar .actions { margin-left: auto; }
+    .toolbar-divider { width: 1px; height: 22px; background: var(--line-strong); margin: 0 4px; }
     .tabs, .actions, .profile-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .profile-tools select { min-width: 210px; width: auto; font-weight: 600; }
     .profile-tools small { color: var(--muted); }
@@ -110,16 +114,18 @@
     .btn.icon:hover { transform: none; box-shadow: none; background: var(--brand-soft); }
     .btn:disabled { opacity: .55; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
 
-    /* ---- 面板 ---- */
-    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 18px; align-items: start; }
+    /* ---- 面板：双列瀑布流，高度由内容决定 ---- */
+    .grid { columns: 2; column-gap: 18px; }
     .panel {
-      grid-column: span 6; position: relative;
+      position: relative; width: 100%;
+      break-inside: avoid; -webkit-column-break-inside: avoid;
+      margin: 0 0 18px;
       border: 1px solid var(--line); border-radius: var(--radius);
       background: var(--card); box-shadow: var(--shadow-sm);
       overflow: hidden; transition: opacity .15s, transform .15s, box-shadow .2s ease;
     }
     .panel:hover { box-shadow: var(--shadow-md); }
-    .panel.wide { grid-column: span 12; }
+    .panel.wide { column-span: all; }
     .panel.dragging { opacity: .45; transform: scale(.985); }
     .panel-head {
       display: flex; justify-content: space-between; gap: 12px; align-items: center;
@@ -249,8 +255,8 @@
     .toast.show { opacity: 1; transform: none; }
     .toast.error { background: rgba(148, 51, 59, .97); }
 
-    @media (max-width: 900px) { .panel { grid-column: span 12; } .history-row { grid-template-columns: 1fr 1fr; } .history-row .digest { grid-column: span 2; } }
-    @media (max-width: 620px) { .topbar { flex-direction: column; } .toolbar { position: static; } .form-grid, .schedule-fields, .profile-editor, .credential-grid { grid-template-columns: 1fr; } .credential-grid .span-2 { grid-column: span 1; } .source-row { grid-template-columns: 1fr 82px 42px; } }
+    @media (max-width: 980px) { .grid { columns: 1; } .history-row { grid-template-columns: 1fr 1fr; } .history-row .digest { grid-column: span 2; } }
+    @media (max-width: 620px) { .topbar { flex-direction: column; align-items: flex-start; gap: 10px; } .topbar .subtitle { display: none; } .toolbar { position: static; } .toolbar .actions { margin-left: 0; } .form-grid, .schedule-fields, .profile-editor, .credential-grid { grid-template-columns: 1fr; } .credential-grid .span-2 { grid-column: span 1; } .source-row { grid-template-columns: 1fr 82px 42px; } }
   </style>
 </head>
 <body>
@@ -274,7 +280,7 @@
           <button class="btn" id="cancelProfileEditBtn">取消</button>
         </div>
       </div>
-      <div class="actions"><button class="btn" id="reloadBtn">重新读取</button><button class="btn danger" id="restoreBtn">恢复上次保存</button><button class="btn primary" id="saveBtn">保存配置</button></div>
+      <div class="toolbar-divider" aria-hidden="true"></div><div class="actions"><button class="btn" id="reloadBtn">重新读取</button><button class="btn danger" id="restoreBtn">恢复上次保存</button><button class="btn primary" id="saveBtn">保存配置</button></div>
     </nav>
 
     <section class="grid" id="panelGrid">
@@ -290,6 +296,19 @@
         </div>
       </article>
 
+      <article class="panel" data-panel="sources">
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动数据源模块">⠿</button><div><h2>数据源</h2><small>启停与单源抓取上限</small></div></div></header>
+        <div class="panel-body" id="sourceList"></div>
+      </article>
+
+      <article class="panel" data-panel="policy">
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动筛选规则">⠿</button><div><h2>筛选规则</h2><small>期刊限定与检索式生成</small></div></div></header>
+        <div class="panel-body">
+          <div class="switch-row"><div class="switch-copy"><strong>启用期刊白名单</strong><span>仅保留允许的期刊范围</span></div><label class="switch"><input id="journalEnabled" type="checkbox"><span></span></label></div>
+          <div class="switch-row"><div class="switch-copy"><strong>关键词自动生成检索式</strong><span>保存后的关键词直接参与下一次检索</span></div><label class="switch"><input id="autoQuery" type="checkbox"><span></span></label></div>
+        </div>
+      </article>
+
       <article class="panel" data-panel="timing">
         <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动推送计划">⠿</button><div><h2>分类推送计划</h2><small>三类文献互不混发</small></div></div></header>
         <div class="panel-body">
@@ -299,11 +318,15 @@
         </div>
       </article>
 
-      <article class="panel" data-panel="policy">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动筛选规则">⠿</button><div><h2>筛选规则</h2><small>期刊限定与检索式生成</small></div></div></header>
+      <article class="panel" data-panel="email">
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动邮件模块">⠿</button><div><h2>推送邮箱</h2><small>收件人可增删改与排序</small></div></div></header>
         <div class="panel-body">
-          <div class="switch-row"><div class="switch-copy"><strong>启用期刊白名单</strong><span>仅保留允许的期刊范围</span></div><label class="switch"><input id="journalEnabled" type="checkbox"><span></span></label></div>
-          <div class="switch-row"><div class="switch-copy"><strong>关键词自动生成检索式</strong><span>保存后的关键词直接参与下一次检索</span></div><label class="switch"><input id="autoQuery" type="checkbox"><span></span></label></div>
+          <div class="switch-row"><div class="switch-copy"><strong>启用邮件推送</strong><span>SMTP 账号可在下方“本机接口与账号”中维护</span></div><label class="switch"><input id="emailEnabled" type="checkbox"><span></span></label></div>
+          <label class="field">邮件主题前缀<input id="subjectPrefix" type="text" maxlength="80"></label>
+          <label class="field">SMTP 加密方式<select id="smtpSecurity"><option value="ssl">SSL（通常 465）</option><option value="starttls">STARTTLS（通常 587）</option><option value="none">不加密</option></select></label>
+          <div class="email-list" id="emailList"></div>
+          <button class="btn" id="addEmailBtn">新增邮箱</button>
+          <p class="hint" id="emailHint"></p>
         </div>
       </article>
 
@@ -317,23 +340,6 @@
               <div class="group-grid" id="groupGrid"></div>
             </div>
           </details>
-        </div>
-      </article>
-
-      <article class="panel" data-panel="sources">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动数据源模块">⠿</button><div><h2>数据源</h2><small>启停与单源抓取上限</small></div></div></header>
-        <div class="panel-body" id="sourceList"></div>
-      </article>
-
-      <article class="panel" data-panel="email">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动邮件模块">⠿</button><div><h2>推送邮箱</h2><small>收件人可增删改与排序</small></div></div></header>
-        <div class="panel-body">
-          <div class="switch-row"><div class="switch-copy"><strong>启用邮件推送</strong><span>SMTP 账号可在下方“本机接口与账号”中维护</span></div><label class="switch"><input id="emailEnabled" type="checkbox"><span></span></label></div>
-          <label class="field">邮件主题前缀<input id="subjectPrefix" type="text" maxlength="80"></label>
-          <label class="field">SMTP 加密方式<select id="smtpSecurity"><option value="ssl">SSL（通常 465）</option><option value="starttls">STARTTLS（通常 587）</option><option value="none">不加密</option></select></label>
-          <div class="email-list" id="emailList"></div>
-          <button class="btn" id="addEmailBtn">新增邮箱</button>
-          <p class="hint" id="emailHint"></p>
         </div>
       </article>
 
