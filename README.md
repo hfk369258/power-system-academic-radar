@@ -212,7 +212,13 @@ powershell -ExecutionPolicy Bypass -File scripts\run_radar.ps1 `
 
 ## 升级与文件替换
 
-**方式 A：git 源码 / 计划任务部署（推荐）**
+**方式 A：应用内一键升级（推荐普通用户）**
+
+打开控制台，在「软件更新」面板点击 **检查更新**；发现新版本后点击 **一键升级**。程序会自动从 GitHub Releases 下载升级包、备份并替换程序文件、然后自动重启控制台。`profiles/`、`work/`、`logs/`、凭据等本机数据全程不受影响。
+
+> 一键升级仅对打包后的 exe 生效；开发模式请使用方式 B。
+
+**方式 B：git 源码 / 计划任务部署（开发者）**
 
 ```powershell
 git pull
@@ -220,7 +226,16 @@ git pull
 
 即可完成升级。`profiles/`、`work/`、`logs/`、凭据与状态文件均不被 git 跟踪，天然保留；计划任务无需重建，下次运行自动使用新代码。
 
-**方式 B：下载 zip / 替换文件的 exe 部署**
+**方式 C：setup 安装包**
+
+从 Release 下载 `power-system-radar-ui_v*_setup.exe`，双击安装。安装器会：
+
+- 自动关闭正在运行的旧控制台；
+- 沿用上一次的安装目录（覆盖升级），只替换程序文件；
+- 不触碰 `profiles/`、`work/`、`logs/` 与凭据文件——旧配置原样继承；
+- 创建开始菜单 / 桌面快捷方式。
+
+**方式 D：下载 zip 手动替换（不推荐，备用手段）**
 
 从 Release 下载 `power-system-radar-ui_v*.zip`（含 exe 与 `_internal/`），按下面的清单替换：
 
@@ -235,10 +250,20 @@ git pull
 
 1. 关闭正在运行的雷达控制台窗口；
 2. 将压缩包内的上述程序文件/文件夹覆盖到部署目录（或先删旧再复制，注意保留右列表格中的数据项）；
-3. 重新打开控制台，确认关于/版本号为最新；
+3. 重新打开控制台，「软件更新」面板显示的版本号应为最新；
 4. 计划任务指向的是 `scripts\run_radar.ps1`，只要路径没变就无需重建。
 
-> 注意：只替换 exe 而不替换 `scripts/` 是无效升级——每日推送由系统 Python 直接执行 `scripts/power_system_radar.py`，修复代码在这个源码文件里。
+> 注意：只替换 exe 而不替换 `scripts/` 是无效升级——每日推送由系统 Python 直接执行 `scripts/power_system_radar.py`，修复代码在这个源码文件里。方式 A/C 会自动处理这一点。
+
+## 发布新版本（维护者）
+
+1. 修改 `scripts/radar_update.py` 顶部的 `APP_VERSION`，与本次 git tag 保持一致；
+2. 运行 `powershell -File scripts/build_exe.ps1`，脚本会依次产出：
+   - `dist/power-system-radar-ui/`（可执行目录）；
+   - `dist/power-system-radar-ui_v<版本>.zip`（一键升级与手动替换用）；
+   - `dist/power-system-radar-ui_v<版本>_setup.exe`（需本机安装 Inno Setup 6）；
+3. 打 git tag（如 `v0.3.5`）并推送，创建 GitHub Release，上传上述 zip 与 setup exe 两个产物；
+4. 发布后，所有旧版本用户即可通过「检查更新 → 一键升级」完成升级。
 
 ## 使用边界与注意事项
 

@@ -41,3 +41,48 @@ if (Test-Path -LiteralPath $ProfileBackup) {
 Write-Host ""
 Write-Host "Build complete: $Target\power-system-radar-ui.exe"
 Write-Host "Double-click the exe to open the config console. Closing its window stops the UI only; scheduled radar runs are independent."
+
+# ---------------------------------------------------------------------------
+# Release artifacts: power-system-radar-ui_v<version>.zip (for in-app self-update
+# and GitHub Release) plus an optional Inno Setup installer.
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "==> Reading APP_VERSION from scripts/radar_update.py..."
+$Version = (python -c "import sys; sys.path.insert(0, 'scripts'); import radar_update; print(radar_update.APP_VERSION)").Trim()
+if (-not $Version) { throw "Failed to read APP_VERSION" }
+Write-Host "    version = $Version"
+
+Write-Host "==> Assembling release package..."
+$ReleaseStage = Join-Path $Root "dist\_release\power-system-radar-ui"
+if (Test-Path -LiteralPath (Join-Path $Root "dist\_release")) {
+    Remove-Item -Recurse -Force (Join-Path $Root "dist\_release")
+}
+New-Item -ItemType Directory -Force -Path $ReleaseStage | Out-Null
+Copy-Item -Path (Join-Path $Target "*") -Destination $ReleaseStage -Recurse -Force
+# Cache dirs and local user data must never enter the release package.
+foreach ($name in @("__pycache__", ".pytest_cache", "profiles", "work", "logs")) {
+    Get-ChildItem $ReleaseStage -Recurse -Force -Directory -Filter $name -ErrorAction SilentlyContinue |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+$ZipName = "power-system-radar-ui_v$Version.zip"
+$ZipPath = Join-Path $Root "dist\$ZipName"
+if (Test-Path -LiteralPath $ZipPath) { Remove-Item -Force $ZipPath }
+Compress-Archive -Path $ReleaseStage -DestinationPath $ZipPath
+Write-Host "Release zip created: $ZipPath"
+
+# Optional: build the Inno Setup installer (requires Inno Setup 6 / ISCC.exe).
+$Issc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+$IsscPath = @(
+    "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+$IsccExe = if ($Issc) { $Issc.Source } elseif ($IsscPath) { $IsscPath } else { $null }
+if ($IsccExe) {
+    Write-Host "==> Building installer (Inno Setup)..."
+    & $IsccExe "/DAppVersion=$Version" (Join-Path $Root "installer\power-system-radar-ui.iss")
+    if ($LASTEXITCODE -ne 0) { throw "Inno Setup build failed" }
+} else {
+    Write-Warning "Inno Setup 6 (ISCC.exe) not found; skipping installer build. Install Inno Setup and re-run to produce the setup exe."
+}

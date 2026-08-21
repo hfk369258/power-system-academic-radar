@@ -254,6 +254,15 @@
         </div>
       </article>
 
+      <article class="panel wide" data-panel="update">
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动更新模块">⠿</button><div><h2>软件更新</h2><small id="curVersion"></small></div></div></header>
+        <div class="panel-body">
+          <div class="history-tools"><button class="btn" id="checkUpdateBtn">检查更新</button><button class="btn" id="applyUpdateBtn" hidden>一键升级</button><small id="updateSummary"></small></div>
+          <div class="history-list" id="updateDetail" hidden></div>
+          <p class="hint">一键升级会自动下载新版本、替换程序文件并重启控制台；方案、凭据、历史报告与日志全部保留。升级过程中请勿关闭窗口或断网。</p>
+        </div>
+      </article>
+
       <article class="panel wide" data-panel="maintenance">
         <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动维护模块">⠿</button><div><h2>维护与清理</h2><small>清理本机历史遗留的凭据备份与回收目录</small></div></div></header>
         <div class="panel-body">
@@ -748,6 +757,68 @@
       finally { btn.disabled = false; btn.textContent = '删除勾选目录'; }
     }
 
+    let pendingUpdate = null; let updatePollTimer = null;
+    async function initUpdatePanel() {
+      try {
+        const result = await api('/api/update/status');
+        const d = result.data;
+        $('curVersion').textContent = d.frozen ? `当前版本 v${d.current_version}` : `开发模式 v${d.current_version}（一键升级不可用）`;
+        if (!d.frozen) $('checkUpdateBtn').disabled = true;
+      } catch { $('curVersion').textContent = ''; }
+    }
+    async function checkUpdate() {
+      const summary = $('updateSummary'); const btn = $('checkUpdateBtn');
+      btn.disabled = true; summary.textContent = '正在检查更新…';
+      try {
+        const result = await api('/api/update/check');
+        const d = result.data;
+        if (!d.has_update) {
+          pendingUpdate = null;
+          summary.textContent = `已是最新版本（本机 v${d.current_version}，远端 v${d.latest_version}）`;
+          $('applyUpdateBtn').hidden = true; $('updateDetail').hidden = true;
+        } else {
+          pendingUpdate = d;
+          summary.textContent = `发现新版本 v${d.latest_version}`;
+          const detail = $('updateDetail'); detail.hidden = false; detail.replaceChildren();
+          const meta = document.createElement('div'); meta.className = 'doc';
+          meta.textContent = `${d.name || d.tag} · ${((d.zip_size || 0) / 1048576).toFixed(1)} MB` + (d.published_at ? ` · 发布于 ${String(d.published_at).slice(0, 10)}` : '');
+          const notes = document.createElement('div'); notes.className = 'digest'; notes.style.whiteSpace = 'pre-wrap'; notes.textContent = d.notes || '';
+          detail.append(meta, notes);
+          $('applyUpdateBtn').hidden = false;
+        }
+      } catch (error) { summary.textContent = ''; toast(chineseError(error, '检查更新失败'), true); }
+      finally { btn.disabled = false; }
+    }
+    function pollUpdateStatus() {
+      clearInterval(updatePollTimer);
+      updatePollTimer = setInterval(async () => {
+        let d;
+        try { d = (await api('/api/update/status')).data; } catch { return; }
+        if (d.message) $('updateSummary').textContent = d.progress != null ? `${d.message}（${d.progress}%）` : d.message;
+        if (d.phase === 'error') {
+          clearInterval(updatePollTimer);
+          toast(d.message || '升级失败', true);
+          const btn = $('applyUpdateBtn'); btn.disabled = false; btn.textContent = '一键升级';
+        } else if (d.phase === 'restarting') {
+          clearInterval(updatePollTimer);
+          $('updateSummary').textContent = '控制台即将关闭并自动重启，请稍候…';
+        }
+      }, 1000);
+    }
+    async function applyUpdate() {
+      if (!pendingUpdate) return;
+      if (!confirm(`升级到 v${pendingUpdate.latest_version}？\n程序将自动关闭并重启；方案、凭据与历史数据全部保留。`)) return;
+      const btn = $('applyUpdateBtn'); btn.disabled = true; btn.textContent = '正在准备升级…';
+      try {
+        await api('/api/update/apply', { method: 'POST', body: JSON.stringify({ tag: pendingUpdate.tag }) });
+        $('updateSummary').textContent = '升级任务已启动…';
+        pollUpdateStatus();
+      } catch (error) {
+        toast(chineseError(error, '启动升级失败'), true);
+        btn.disabled = false; btn.textContent = '一键升级';
+      }
+    }
+
     function setupPanels() {
       const grid = $('panelGrid');
       let saved = [];
@@ -779,7 +850,7 @@
     window.addEventListener('error', event => { event.preventDefault(); toast(chineseError(event.error || event.message, '页面运行失败，请重新启动控制台'), true); });
     window.addEventListener('unhandledrejection', event => { event.preventDefault(); toast(chineseError(event.reason, '操作失败，请重试'), true); });
     window.addEventListener('beforeunload', e => { if (state.dirty || state.credentialsDirty) { e.preventDefault(); e.returnValue = ''; } });
-    setupPanels(); loadProfiles(); loadHistory(); scanMaintenance();
+    setupPanels(); loadProfiles(); loadHistory(); scanMaintenance(); initUpdatePanel();
   </script>
 </body>
 </html>

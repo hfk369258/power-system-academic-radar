@@ -30,6 +30,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import radar_update
+
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 ASSET_PATH = PLUGIN_ROOT / "assets" / "radar_control_panel.html"
@@ -48,6 +50,9 @@ PROFILE_META = {
 PROFILES_ROOT = PLUGIN_ROOT / "profiles"
 PROFILES_REGISTRY = PROFILES_ROOT / "profiles.json"
 MAX_PROFILES = 20
+
+# 应用内一键升级（GitHub Releases）的后台任务管理器。
+UPDATE_MANAGER = radar_update.UpdateManager()
 PROFILE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
 CREDENTIAL_FIELDS = (
     "DEEPSEEK_API_KEY",
@@ -1245,6 +1250,18 @@ class RadarUIHandler(BaseHTTPRequestHandler):
                 self._send(HTTPStatus.OK, data, content_type)
             elif parsed.path == "/api/maintenance":
                 self._json(HTTPStatus.OK, {"ok": True, "targets": self.store.maintenance_targets()})
+            elif parsed.path == "/api/update/check":
+                try:
+                    data = radar_update.check_update()
+                except radar_update.UpdateError as exc:
+                    raise ConfigError(str(exc)) from exc
+                self._json(HTTPStatus.OK, {"ok": True, "data": data})
+            elif parsed.path == "/api/update/status":
+                self._json(HTTPStatus.OK, {"ok": True, "data": {
+                    "current_version": radar_update.APP_VERSION,
+                    "frozen": bool(getattr(sys, "frozen", False)),
+                    **UPDATE_MANAGER.status(),
+                }})
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "页面不存在"})
         except Exception as exc:
@@ -1318,6 +1335,18 @@ class RadarUIHandler(BaseHTTPRequestHandler):
             if api_path == "/api/schedule/stop":
                 self.store.stop_schedule(self._profile())
                 self._json(HTTPStatus.OK, {"ok": True, "message": "Windows 推送计划已停止"})
+                return
+            if api_path == "/api/update/apply":
+                body = self._body()
+                try:
+                    started = UPDATE_MANAGER.start(tag=body.get("tag") or None)
+                except radar_update.UpdateError as exc:
+                    raise ConfigError(str(exc)) from exc
+                self._json(HTTPStatus.OK, {
+                    "ok": True,
+                    **started,
+                    "message": "升级任务已启动，请保持窗口打开，控制台稍后将自动重启",
+                })
                 return
             if api_path == "/api/maintenance/cleanup":
                 cleaned = self.store.cleanup_maintenance(self._body().get("targets"))
