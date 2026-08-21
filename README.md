@@ -210,6 +210,36 @@ powershell -ExecutionPolicy Bypass -File scripts\run_radar.ps1 `
 
 上述目录以及本机方案、凭据、状态文件均已加入 `.gitignore`。
 
+## 升级与文件替换
+
+**方式 A：git 源码 / 计划任务部署（推荐）**
+
+```powershell
+git pull
+```
+
+即可完成升级。`profiles/`、`work/`、`logs/`、凭据与状态文件均不被 git 跟踪，天然保留；计划任务无需重建，下次运行自动使用新代码。
+
+**方式 B：下载 zip / 替换文件的 exe 部署**
+
+从 Release 下载 `power-system-radar-ui_v*.zip`（含 exe 与 `_internal/`），按下面的清单替换：
+
+| 必须替换（程序文件） | 绝对不要覆盖/删除（本机数据） |
+|---|---|
+| `power-system-radar-ui.exe` | `profiles/`（方案、凭据、输出、历史） |
+| `_internal/`（整个文件夹） | `work/`（运行时配置与状态） |
+| `scripts/`（整个文件夹，**引擎是源码形态，exe 里不包含**） | `logs/` |
+| `skills/`、`assets/`、`docs/`（可选，建议一并换新） | `radar.env.ps1`、`credentials.env.ps1` 等凭据文件 |
+
+操作步骤：
+
+1. 关闭正在运行的雷达控制台窗口；
+2. 将压缩包内的上述程序文件/文件夹覆盖到部署目录（或先删旧再复制，注意保留右列表格中的数据项）；
+3. 重新打开控制台，确认关于/版本号为最新；
+4. 计划任务指向的是 `scripts\run_radar.ps1`，只要路径没变就无需重建。
+
+> 注意：只替换 exe 而不替换 `scripts/` 是无效升级——每日推送由系统 Python 直接执行 `scripts/power_system_radar.py`，修复代码在这个源码文件里。
+
 ## 使用边界与注意事项
 
 本项目与 IEEE、Elsevier、CNKI、Semantic Scholar、OpenAlex、Crossref、arXiv、DeepSeek 及各邮箱服务商均无官方隶属关系。MIT License 只覆盖本项目代码，不授予论文全文、摘要数据库、导出记录或第三方商标的再分发权。使用者必须自行遵守接口限速、数据库许可、机构订阅和邮件服务条款。

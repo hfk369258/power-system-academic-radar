@@ -6,6 +6,10 @@
 - LLM 可用性误报：本轮没有可解读的英文摘要文献（全部为中文文献，或英文文献均无摘要仅题名初筛）时，不再误报「⚠ LLM 中文解读本轮不可用（未知错误）」。原逻辑只看「成功数 == 0」就报警，未区分「没尝试」与「尝试后失败」；现改为只有真正发起过 LLM 调用且全部失败才显示该警告，部分失败仍提示「已用本地规则摘要补充」，行为不变；
 - 插件版本号元数据 `.codex-plugin/plugin.json` 从遗留的 `0.2.0+codex.20260809` 对齐到当前版本，插件列表/控制台不再显示旧版本号。
 
+### 升级说明
+- README 新增「升级与文件替换」章节：git 部署 `git pull` 即可；exe/zip 部署给出了必须替换（exe、`_internal/`、`scripts/` 等）与严禁覆盖（`profiles/`、凭据等）的清单。注意引擎 `power_system_radar.py` 以源码形态运行、不在 exe 内，只换 exe 不换 `scripts/` 是无效升级；
+- Release 附带重新打包的 `power-system-radar-ui_v0.3.4.zip`（PyInstaller onedir，含 exe 与 `_internal/`）。
+
 ### 测试
 - pytest 80 项 + 5 subtests 全部通过。
 
