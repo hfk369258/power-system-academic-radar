@@ -108,7 +108,12 @@ def check_update(current: str = APP_VERSION, timeout: float = 15.0) -> dict[str,
     """对比本地与远端版本，返回前端展示所需的完整信息。"""
     latest = fetch_latest_release(timeout=timeout)
     has_update = parse_version(latest["tag"]) > parse_version(current)
-    return {"current_version": current, "has_update": has_update, **latest}
+    return {
+        "current_version": current,
+        "latest_version": version_string(latest["tag"]),
+        "has_update": has_update,
+        **latest,
+    }
 
 
 # ---------------------------------------------------------------------------
