@@ -122,7 +122,7 @@ def main() -> int:
     try:
         import webview  # type: ignore[import-not-found]
 
-        webview.create_window("电力系统文献雷达配置台", url, width=1280, height=880)
+        webview.create_window("电力系统文献雷达配置台", url, width=1280, height=880, background_color="#121a17")
         webview.start()
     except Exception:
         webbrowser.open(url)

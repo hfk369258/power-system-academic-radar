@@ -88,7 +88,8 @@
     .side-actions { display: flex; gap: 8px; }
     .side-actions .btn { flex: 1; padding: 7px 8px; font-size: 12.5px; }
     .content { flex: 1; min-width: 0; padding: 28px clamp(20px, 4vw, 52px) 60px; }
-    .content .panel { width: 100%; max-width: 980px; margin: 0; height: auto; }
+    .content .panel { width: 100%; max-width: 980px; margin: 0; height: auto; animation: panelIn .22s cubic-bezier(.25,.9,.35,1); }
+    @keyframes panelIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
     .content .panel[hidden] { display: none; }
     /* 导航模式下不再需要分区标题与双列网格 */
     .content .zone-title { display: none; }
@@ -270,7 +271,7 @@
       position: fixed; right: 22px; bottom: 22px; z-index: 100;
       max-width: min(420px, calc(100vw - 44px)); padding: 13px 17px;
       border-radius: 13px; color: #fff; font-weight: 500;
-      background: rgba(28, 46, 37, .96); backdrop-filter: blur(8px);
+      background: rgba(28, 46, 37, .97);
       border: 1px solid rgba(255,255,255,.12);
       box-shadow: var(--shadow-lg);
       opacity: 0; transform: translateY(12px) scale(.97); pointer-events: none; transition: .22s cubic-bezier(.34,1.3,.64,1);
