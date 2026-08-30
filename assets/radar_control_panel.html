@@ -266,6 +266,27 @@
     [hidden] { display: none !important; }
     .empty { padding: 18px; text-align: center; color: var(--muted); border: 1.5px dashed var(--line-strong); border-radius: 12px; background: rgba(255,255,255,.6); }
 
+    /* ---- 帮助中心 ---- */
+    #helpSearch { margin-bottom: 14px; }
+    .help-list { display: grid; gap: 9px; }
+    .help-item {
+      border: 1px solid var(--line); border-radius: 12px; background: var(--inner-bg);
+      padding: 0 14px; transition: border-color .15s;
+    }
+    .help-item:hover { border-color: var(--line-strong); }
+    .help-item[open] { border-color: var(--brand); background: var(--card); }
+    .help-item summary {
+      cursor: pointer; list-style: none; padding: 12px 2px;
+      font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 10px;
+    }
+    .help-item summary::-webkit-details-marker { display: none; }
+    .help-item summary::after { content: "展开"; color: var(--muted); font-size: 12px; font-weight: 400; flex: none; margin-left: auto; }
+    .help-item[open] summary::after { content: "收起"; color: var(--brand); }
+    .help-item summary:hover { color: var(--brand); }
+    .help-item summary mark, .help-item mark { background: rgba(22, 160, 111, .25); color: inherit; border-radius: 3px; padding: 0 2px; }
+    .help-body { padding: 2px 2px 14px; color: var(--muted); font-size: 13.5px; line-height: 1.85; }
+    .help-body b { color: var(--text); }
+
     /* ---- 提示浮层 ---- */
     .toast {
       position: fixed; right: 22px; bottom: 22px; z-index: 100;
@@ -363,6 +384,7 @@
       <button class="nav-item" data-target="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><span>发送记录</span></button>
       <button class="nav-item" data-target="update"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg><span>软件更新</span></button>
       <button class="nav-item" data-target="maintenance"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><span>维护与清理</span></button>
+      <button class="nav-item" data-target="help"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="4.93" y1="4.93" x2="9.17" y2="9.17"/><line x1="14.83" y1="14.83" x2="19.07" y2="19.07"/><line x1="14.83" y1="9.17" x2="19.07" y2="4.93"/><line x1="4.93" y1="19.07" x2="9.17" y2="14.83"/></svg><span>帮助中心</span></button>
     </nav>
     <div class="side-foot">
       <div class="side-status"><span class="dot" id="statusDot"></span><span id="statusText">正在读取配置</span></div>
@@ -389,6 +411,13 @@
               <div class="group-grid" id="groupGrid"></div>
             </div>
           </details>
+        </div>
+      </article>
+      <article class="panel" data-panel="help">
+        <header class="panel-head"><div class="panel-title"><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="4.93" y1="4.93" x2="9.17" y2="9.17"/><line x1="14.83" y1="14.83" x2="19.07" y2="19.07"/><line x1="14.83" y1="9.17" x2="19.07" y2="4.93"/><line x1="4.93" y1="19.07" x2="9.17" y2="14.83"/></svg><h2>帮助中心</h2><small>新手指南 · 常见问题 · 支持搜索</small></div></div></header>
+        <div class="panel-body">
+          <input id="helpSearch" type="search" placeholder="搜索帮助：授权码 / 微信 / 计划任务 / 白名单 …" aria-label="搜索帮助">
+          <div id="helpList" class="help-list"></div>
         </div>
       </article>
 <article class="panel" data-panel="sources">
@@ -1101,6 +1130,56 @@
     window.addEventListener('error', event => { event.preventDefault(); toast(chineseError(event.error || event.message, '页面运行失败，请重新启动控制台'), true); });
     window.addEventListener('unhandledrejection', event => { event.preventDefault(); toast(chineseError(event.reason, '操作失败，请重试'), true); });
     window.addEventListener('beforeunload', e => { if (state.dirty || state.credentialsDirty) { e.preventDefault(); e.returnValue = ''; } });
+    const HELP_DATA = [
+      { q: "三步开始使用", tags: "新手 快速开始 上手 教程",
+        a: "<b>第一步</b>：到「本机接口与账号」填写 QQ/163 邮箱的 <b>SMTP 授权码</b>（邮箱设置里生成，不是登录密码）与 DeepSeek API Key；<br><b>第二步</b>：到「分类推送计划」确认推送时间；<br><b>第三步</b>：点击底部或侧栏的<b>「保存并应用计划」</b>，Windows 定时任务即注册完成，之后每天自动推送。" },
+      { q: "配置邮件推送（QQ / 163 邮箱）", tags: "邮箱 smtp 授权码 qq 163 邮件",
+        a: "1. 到邮箱网页版开启 SMTP 服务并生成<b>授权码</b>（QQ：设置→账号→生成授权码）；<br>2. 「本机接口与账号」填写 SMTP 主机（smtp.qq.com / smtp.163.com）、端口 465、账号与授权码；<br>3. 「推送通知」打开<b>启用邮件推送</b>，在收件人列表添加邮箱；<br>4. 保存并应用计划。收不到时检查垃圾箱与授权码是否正确。" },
+      { q: "配置微信推送（企业微信群机器人）", tags: "微信 企业微信 webhook 机器人 serverchan pushplus",
+        a: "1. 企业微信群里右键 → 添加群机器人 → 复制 <b>Webhook 地址</b>（https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…）；<br>2. 「本机接口与账号」粘贴到<b>微信机器人 Webhook</b>；<br>3. 「推送通知」打开<b>启用微信推送</b>并设置每次条数（默认 8）；<br>4. 保存并应用计划。ServerChan / PushPlus 等桥接地址同样支持。" },
+      { q: "中文文献是怎么来的（NAPSTIC）", tags: "中文 napstic 知网 核心期刊 来源",
+        a: "中文文献来自「国家学术搜索」NAPSTIC（中信所运营的开放平台），<b>napstic_search</b> 按你的中文关键词逐词检索全网中文期刊（含网络首发），<b>napstic_journals</b> 按期刊逐期抓取。检索词在「关键词」分组的 <b>chinese</b> 组里维护。" },
+      { q: "为什么中文文献比较少（白名单）", tags: "白名单 中文 数量 质量 宁缺毋滥 chinese_ei 期刊",
+        a: "中文文献也要过<b>期刊白名单</b>（宁缺毋滥）。当前内置 21 本电力核心/主流期刊（中国电机工程学报、电力系统自动化、电网技术等）。想增加覆盖：编辑 assets 配置 JSON 的 journal_filter.categories.chinese_ei，把想看的期刊名加进去即可。" },
+      { q: "每次推送多少篇（中英配额）", tags: "配额 数量 英文 中文 篇数 10 5",
+        a: "「运行设置」里 <b>英文每日篇数</b>（默认 10）与<b>中文每日篇数</b>（默认 5）分别控制两类文献数量，宁缺毋滥：不够就少发，不凑数；启用历史回填后不足时会用从未推送过的历史文献补位（默认关闭）。" },
+      { q: "定时推送没来（计划任务排查）", tags: "计划任务 定时 没推送 排查 windows",
+        a: "1. 「分类推送计划」里确认对应类型开关与时间；<br>2. 点过<b>「保存并应用计划」</b>后任务才会注册（任务计划程序 → \Codex\ 目录）；<br>3. 修改配置后需要再次应用计划；<br>4. 停止推送用「停止任务」按钮，配置与历史都会保留。" },
+      { q: "DeepSeek 解读与网关配置", tags: "deepseek api 翻译 解读 opencode zen 网关 模型",
+        a: "「本机接口与账号」填 DeepSeek API Key；界面会显示当前实际生效的端点与模型。支持任意 OpenAI 兼容网关：填 <b>DeepSeek 兼容网关地址</b>（如 https://opencode.ai/zen/v1/chat/completions）与<b>模型名</b>（如 deepseek-v4-flash-free）。中文文献不做 LLM 翻译（原文即中文），英文文献自动生成中文摘要翻译与研究概括。" },
+      { q: "Elsevier / Scopus 报 400", tags: "elsevier scopus 400 error 权限",
+        a: "Elsevier 近期平台变动导致部分 key 无法查询（即使 key 认证通过）。雷达中该源可关闭；等门户恢复或更换有 Scopus 权限的 key 后再开启。其他数据源不受影响。" },
+      { q: "如何升级软件", tags: "升级 更新 版本 update",
+        a: "「软件更新」面板点<b>检查更新</b>；有新版本时按提示一键升级（自动下载并替换程序文件，方案/凭据/历史报告全部保留）。也可到 GitHub Releases 页面下载最新离线包。" },
+      { q: "查看历史推送", tags: "历史 发送记录 日志 报告",
+        a: "「发送记录」面板列出每次运行的时间/类型/结果，可打开对应的 Markdown 报告。完整交互式报告在输出的 dashboard HTML 中。" },
+      { q: "凭据安全说明", tags: "安全 凭据 密钥 泄漏 gitignore",
+        a: "所有 API Key、SMTP 授权码与收件人只保存在<b>本机文件</b>（已被 .gitignore 排除），仓库与发布包均不含任何个人凭据。删除方案时相关目录会移入回收目录，可在「维护与清理」中彻底清除。" },
+      { q: "关键词怎么设置", tags: "关键词 分组 检索 搜索词",
+        a: "「关键词」面板按分组管理检索词：core 等英文组驱动英文源检索，<b>chinese</b> 组驱动中文 NAPSTIC 检索。分组可新增/删除/拖拽排序，词可增删改；保存后立即生效于下一次检索。" },
+      { q: "数据源开关说明", tags: "数据源 开关 openalex ieee elsevier 来源 napstic",
+        a: "「数据源」面板控制启停与单源候选量：openalex/crossref/semantic_scholar/ieee 无需 key 或已配置即可用；中文检索(NAPSTIC) 默认开启；elsevier_scopus 受平台状态影响；journal_rss 与中文核心期刊目录默认关闭、按需开启。" },
+    ];
+    function escapeHtml(v) { return String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+    function highlight(text, kw) {
+      if (!kw) return escapeHtml(text);
+      const safe = escapeHtml(text);
+      const idx = safe.toLowerCase().indexOf(kw.toLowerCase());
+      if (idx < 0) return safe;
+      return safe.slice(0, idx) + "<mark>" + safe.slice(idx, idx + kw.length) + "</mark>" + safe.slice(idx + kw.length);
+    }
+    function renderHelp(query) {
+      const kw = (query || "").trim().toLowerCase();
+      const hits = HELP_DATA.filter(item => !kw || (item.q + " " + item.tags + " " + item.a).toLowerCase().includes(kw));
+      const list = document.getElementById("helpList");
+      if (!hits.length) { list.innerHTML = '<div class="empty">没有匹配的帮助条目，换个关键词试试（例如：授权码、微信、计划任务）。</div>'; return; }
+      list.innerHTML = hits.map(item =>
+        '<details class="help-item"' + (kw ? " open" : "") + '><summary>' + highlight(item.q, kw) + '</summary>'
+        + '<div class="help-body">' + item.a + '</div></details>'
+      ).join("");
+    }
+    document.getElementById("helpSearch").addEventListener("input", e => renderHelp(e.target.value));
+    renderHelp("");
     function showPanel(id) {
       document.querySelectorAll('#panelGrid .panel').forEach(p => { p.hidden = p.dataset.panel !== id; });
       document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.target === id));
