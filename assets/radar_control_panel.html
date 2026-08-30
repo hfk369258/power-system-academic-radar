@@ -88,7 +88,7 @@
     .side-actions { display: flex; gap: 8px; }
     .side-actions .btn { flex: 1; padding: 7px 8px; font-size: 12.5px; }
     .content { flex: 1; min-width: 0; padding: 28px clamp(20px, 4vw, 52px) 60px; }
-    .content .panel { width: 100%; max-width: 980px; margin: 0; height: auto; animation: panelIn .22s cubic-bezier(.25,.9,.35,1); }
+    .content .panel { width: 100%; margin: 0; height: auto; animation: panelIn .22s cubic-bezier(.25,.9,.35,1); }
     @keyframes panelIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
     .content .panel[hidden] { display: none; }
     /* 导航模式下不再需要分区标题与双列网格 */
@@ -179,7 +179,7 @@
     .panel-body { padding: 16px 18px 18px; }
 
     /* ---- 表单 ---- */
-    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
     label.field { display: grid; gap: 6px; color: var(--muted); font-size: 13px; font-weight: 500; }
     input[type="text"], input[type="email"], input[type="number"], input[type="search"], input[type="time"], select {
       width: 100%; border: 1px solid var(--line-strong); border-radius: 10px; padding: 9px 12px;
@@ -237,7 +237,7 @@
     .test-result.ok { color: var(--brand-deep); border-color: rgba(15, 122, 85, .35); background: var(--brand-soft); }
     .test-result.err { color: var(--danger); border-color: rgba(194, 69, 78, .35); background: var(--danger-soft); }
     .section-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-    .credential-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+    .credential-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 13px; }
     .credential-grid .span-2 { grid-column: span 2; }
     .schedule-list { display: grid; gap: 10px; }
     .schedule-card { border: 1px solid var(--line); border-radius: 13px; padding: 12px; background: var(--inner-bg); transition: border-color .15s; }
