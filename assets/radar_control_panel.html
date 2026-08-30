@@ -117,8 +117,12 @@
     .btn.icon:hover { transform: none; box-shadow: none; background: var(--brand-soft); }
     .btn:disabled { opacity: .55; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
 
-    /* ---- 面板：双列瀑布流，高度由内容决定 ---- */
-    .grid { columns: 2; column-gap: 18px; }
+    /* ---- 三分区 + 组内双列瀑布流 ---- */
+    .grid { display: grid; gap: 30px; }
+    .zone-title { display: flex; gap: 10px; align-items: center; margin: 0 0 13px; font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: .14em; }
+    .zone-title .zone-ico { font-size: 15px; letter-spacing: 0; }
+    .zone-title::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-strong), transparent); }
+    .zone-grid { columns: 2; column-gap: 18px; }
     .panel {
       position: relative; width: 100%;
       break-inside: avoid; -webkit-column-break-inside: avoid;
@@ -326,7 +330,7 @@
       .toast { background: rgba(16, 24, 20, .97); }
     }
 
-    @media (max-width: 980px) { .grid { columns: 1; } .history-row { grid-template-columns: 1fr 1fr; } .history-row .digest { grid-column: span 2; } }
+    @media (max-width: 980px) { .zone-grid { columns: 1; } .history-row { grid-template-columns: 1fr 1fr; } .history-row .digest { grid-column: span 2; } }
     @media (max-width: 620px) { .topbar { flex-direction: column; align-items: flex-start; gap: 10px; } .topbar .subtitle { display: none; } .toolbar { position: static; } .toolbar .actions { margin-left: 0; } .form-grid, .schedule-fields, .profile-editor, .credential-grid { grid-template-columns: 1fr; } .credential-grid .span-2 { grid-column: span 1; } .source-row { grid-template-columns: 1fr 82px 42px; } }
   </style>
 </head>
@@ -340,68 +344,15 @@
     <nav class="toolbar" aria-label="配置工具栏">
       <div class="profile-tools">
         <select id="profileSelect" aria-label="当前推送方案"></select>
-        <button class="btn" id="addProfileBtn">新增方案</button>
-        <button class="btn" id="renameProfileBtn">重命名</button>
-        <button class="btn danger" id="deleteProfileBtn">删除方案</button>
-        <small id="profileLimit">最多 20 个</small>
-        <div class="profile-editor" id="profileEditor" hidden>
-          <input id="profileNameInput" type="text" maxlength="80" placeholder="方案名称，例如：张老师-新能源调度" aria-label="方案名称">
-          <select id="profileCloneSelect" aria-label="复制哪个方案"></select>
-          <button class="btn primary" id="confirmProfileEditBtn">确认创建</button>
-          <button class="btn" id="cancelProfileEditBtn">取消</button>
-        </div>
       </div>
       <div class="toolbar-divider" aria-hidden="true"></div><div class="actions"><button class="btn" id="reloadBtn">重新读取</button><button class="btn danger" id="restoreBtn">恢复上次保存</button><button class="btn primary" id="saveBtn">保存配置</button></div>
     </nav>
 
     <section class="grid" id="panelGrid">
-      <article class="panel" data-panel="schedule">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动运行设置">⠿</button><div><h2>运行设置</h2><small>控制每天检索与推送的规模</small></div></div></header>
-        <div class="panel-body form-grid">
-          <label class="field">英文每日篇数<input id="dailyTargetEn" type="number" min="0" max="100"></label>
-          <label class="field">中文每日篇数<input id="dailyTargetZh" type="number" min="0" max="100"></label>
-          <label class="field">近期检索窗口（天）<input id="lookback" type="number" min="1" max="90"></label>
-          <label class="field">历史回填窗口（天）<input id="backfill" type="number" min="1" max="3650"></label>
-          <label class="check-field"><input id="backfillEnabled" type="checkbox"><span><strong>启用历史回填</strong><small>文献不足时从历史记录补位</small></span></label>
-          <label class="field">每个来源候选量<input id="candidateLimit" type="number" min="10" max="1000"></label>
-        </div>
-      </article>
-
-      <article class="panel" data-panel="sources">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动数据源模块">⠿</button><div><h2>数据源</h2><small>启停与单源抓取上限</small></div></div></header>
-        <div class="panel-body" id="sourceList"></div>
-      </article>
-
-      <article class="panel" data-panel="policy">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动筛选规则">⠿</button><div><h2>筛选规则</h2><small>期刊限定与检索式生成</small></div></div></header>
-        <div class="panel-body">
-          <div class="switch-row"><div class="switch-copy"><strong>启用期刊白名单</strong><span>仅保留允许的期刊范围</span></div><label class="switch"><input id="journalEnabled" type="checkbox"><span></span></label></div>
-          <div class="switch-row"><div class="switch-copy"><strong>关键词自动生成检索式</strong><span>保存后的关键词直接参与下一次检索</span></div><label class="switch"><input id="autoQuery" type="checkbox"><span></span></label></div>
-        </div>
-      </article>
-
-      <article class="panel" data-panel="timing">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动推送计划">⠿</button><div><h2>分类推送计划</h2><small>三类文献互不混发</small></div></div></header>
-        <div class="panel-body">
-          <div class="schedule-list" id="scheduleList"></div>
-          <div class="section-actions"><button class="btn primary" id="applyScheduleBtn">保存并应用计划</button><button class="btn danger" id="stopScheduleBtn">停止任务</button></div>
-          <p class="hint">关闭某一类后，会停用它自己的 Windows 定时任务；其他类型不受影响。</p>
-        </div>
-      </article>
-
-      <article class="panel" data-panel="email">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动邮件模块">⠿</button><div><h2>推送邮箱</h2><small>收件人可增删改与排序</small></div></div></header>
-        <div class="panel-body">
-          <div class="switch-row"><div class="switch-copy"><strong>启用邮件推送</strong><span>SMTP 账号可在下方“本机接口与账号”中维护</span></div><label class="switch"><input id="emailEnabled" type="checkbox"><span></span></label></div>
-          <label class="field">邮件主题前缀<input id="subjectPrefix" type="text" maxlength="80"></label>
-          <label class="field">SMTP 加密方式<select id="smtpSecurity"><option value="ssl">SSL（通常 465）</option><option value="starttls">STARTTLS（通常 587）</option><option value="none">不加密</option></select></label>
-          <div class="email-list" id="emailList"></div>
-          <button class="btn" id="addEmailBtn">新增邮箱</button>
-          <p class="hint" id="emailHint"></p>
-        </div>
-      </article>
-
-      <article class="panel" data-panel="keywords">
+<section class="zone" data-zone="search">
+  <h3 class="zone-title"><span class="zone-ico">🔍</span>检索与筛选</h3>
+  <div class="zone-grid">
+<article class="panel" data-panel="keywords">
         <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动关键词模块">⠿</button><div><h2>关键词</h2><small id="keywordCount">0 个词</small></div></div></header>
         <div class="panel-body">
           <details class="keyword-details" id="keywordDetails">
@@ -413,8 +364,42 @@
           </details>
         </div>
       </article>
-
-      <article class="panel wide" data-panel="credentials">
+<article class="panel" data-panel="sources">
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动数据源模块">⠿</button><div><h2>数据源</h2><small>启停与单源抓取上限</small></div></div></header>
+        <div class="panel-body" id="sourceList"></div>
+      </article>
+<article class="panel" data-panel="policy">
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动筛选规则">⠿</button><div><h2>筛选规则</h2><small>期刊限定与检索式生成</small></div></div></header>
+        <div class="panel-body">
+          <div class="switch-row"><div class="switch-copy"><strong>启用期刊白名单</strong><span>仅保留允许的期刊范围</span></div><label class="switch"><input id="journalEnabled" type="checkbox"><span></span></label></div>
+          <div class="switch-row"><div class="switch-copy"><strong>关键词自动生成检索式</strong><span>保存后的关键词直接参与下一次检索</span></div><label class="switch"><input id="autoQuery" type="checkbox"><span></span></label></div>
+        </div>
+      </article>
+  </div>
+</section>
+<section class="zone" data-zone="push">
+  <h3 class="zone-title"><span class="zone-ico">📬</span>推送与账号</h3>
+  <div class="zone-grid">
+<article class="panel" data-panel="timing">
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动推送计划">⠿</button><div><h2>分类推送计划</h2><small>三类文献互不混发</small></div></div></header>
+        <div class="panel-body">
+          <div class="schedule-list" id="scheduleList"></div>
+          <div class="section-actions"><button class="btn primary" id="applyScheduleBtn">保存并应用计划</button><button class="btn danger" id="stopScheduleBtn">停止任务</button></div>
+          <p class="hint">关闭某一类后，会停用它自己的 Windows 定时任务；其他类型不受影响。</p>
+        </div>
+      </article>
+<article class="panel" data-panel="email">
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动邮件模块">⠿</button><div><h2>推送邮箱</h2><small>收件人可增删改与排序</small></div></div></header>
+        <div class="panel-body">
+          <div class="switch-row"><div class="switch-copy"><strong>启用邮件推送</strong><span>SMTP 账号可在下方“本机接口与账号”中维护</span></div><label class="switch"><input id="emailEnabled" type="checkbox"><span></span></label></div>
+          <label class="field">邮件主题前缀<input id="subjectPrefix" type="text" maxlength="80"></label>
+          <label class="field">SMTP 加密方式<select id="smtpSecurity"><option value="ssl">SSL（通常 465）</option><option value="starttls">STARTTLS（通常 587）</option><option value="none">不加密</option></select></label>
+          <div class="email-list" id="emailList"></div>
+          <button class="btn" id="addEmailBtn">新增邮箱</button>
+          <p class="hint" id="emailHint"></p>
+        </div>
+      </article>
+<article class="panel wide" data-panel="credentials">
         <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动接口账号模块">⠿</button><div><h2>本机接口与账号</h2><small>每个推送方案独立保存</small></div></div></header>
         <div class="panel-body">
           <div class="switch-row"><div class="switch-copy"><strong>启用 DeepSeek 解读</strong><span>摘要翻译、文章概括和每日简报</span></div><label class="switch"><input id="llmEnabled" type="checkbox"><span></span></label></div>
@@ -445,8 +430,23 @@
           <p class="hint">内容保存在插件目录的本机环境文件中，并自动生成备份。页面仅监听 127.0.0.1，不会把这些值上传到外部服务。</p>
         </div>
       </article>
-
-      <article class="panel wide" data-panel="history">
+  </div>
+</section>
+<section class="zone" data-zone="ops">
+  <h3 class="zone-title"><span class="zone-ico">🛠️</span>运行与维护</h3>
+  <div class="zone-grid">
+<article class="panel" data-panel="schedule">
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动运行设置">⠿</button><div><h2>运行设置</h2><small>控制每天检索与推送的规模</small></div></div></header>
+        <div class="panel-body form-grid">
+          <label class="field">英文每日篇数<input id="dailyTargetEn" type="number" min="0" max="100"></label>
+          <label class="field">中文每日篇数<input id="dailyTargetZh" type="number" min="0" max="100"></label>
+          <label class="field">近期检索窗口（天）<input id="lookback" type="number" min="1" max="90"></label>
+          <label class="field">历史回填窗口（天）<input id="backfill" type="number" min="1" max="3650"></label>
+          <label class="check-field"><input id="backfillEnabled" type="checkbox"><span><strong>启用历史回填</strong><small>文献不足时从历史记录补位</small></span></label>
+          <label class="field">每个来源候选量<input id="candidateLimit" type="number" min="10" max="1000"></label>
+        </div>
+      </article>
+<article class="panel wide" data-panel="history">
         <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动发送记录">⠿</button><div><h2>发送记录</h2><small>各方案每次运行的日报与投递结果</small></div></div></header>
         <div class="panel-body">
           <div class="history-tools">
@@ -459,8 +459,7 @@
           <div class="history-list" id="historyList"></div>
         </div>
       </article>
-
-      <article class="panel wide" data-panel="update">
+<article class="panel wide" data-panel="update">
         <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动更新模块">⠿</button><div><h2>软件更新</h2><small id="curVersion"></small></div></div></header>
         <div class="panel-body">
           <div class="history-tools"><button class="btn" id="checkUpdateBtn">检查更新</button><button class="btn" id="applyUpdateBtn" hidden>一键升级</button><small id="updateSummary"></small></div>
@@ -468,17 +467,31 @@
           <p class="hint">一键升级会自动下载新版本、替换程序文件并重启控制台；方案、凭据、历史报告与日志全部保留。升级过程中请勿关闭窗口或断网。</p>
         </div>
       </article>
-
-      <article class="panel wide" data-panel="maintenance">
+<article class="panel wide" data-panel="maintenance">
         <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动维护模块">⠿</button><div><h2>维护与清理</h2><small>清理本机历史遗留的凭据备份与回收目录</small></div></div></header>
         <div class="panel-body">
+          <div class="history-tools" style="margin-top:16px"><strong>方案管理</strong></div>
+          <div class="profile-tools">
+            <button class="btn" id="addProfileBtn">新增方案</button>
+            <button class="btn" id="renameProfileBtn">重命名</button>
+            <button class="btn danger" id="deleteProfileBtn">删除方案</button>
+            <small id="profileLimit">最多 20 个</small>
+            <div class="profile-editor" id="profileEditor" hidden>
+              <input id="profileNameInput" type="text" maxlength="80" placeholder="方案名称，例如：张老师-新能源调度" aria-label="方案名称">
+              <select id="profileCloneSelect" aria-label="复制哪个方案"></select>
+              <button class="btn primary" id="confirmProfileEditBtn">确认创建</button>
+              <button class="btn" id="cancelProfileEditBtn">取消</button>
+            </div>
+          </div>
           <div class="history-tools"><button class="btn" id="scanMaintenanceBtn">扫描本机残留</button><small id="maintenanceSummary"></small></div>
           <div class="history-list" id="maintenanceList"></div>
           <div class="section-actions"><button class="btn danger" id="cleanMaintenanceBtn" hidden>删除勾选目录</button></div>
           <p class="hint">仅列出 profiles 目录下可能含旧凭据副本的隐藏目录（删除方案回收目录、历史备份）。清理前请确认不再需要，删除后不可恢复。</p>
         </div>
       </article>
-    </section>
+  </div>
+</section>
+</section>
   </main>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -1031,13 +1044,13 @@
       try { saved = JSON.parse(localStorage.getItem('radar-panel-order') || '[]'); }
       catch { localStorage.removeItem('radar-panel-order'); }
       if (!Array.isArray(saved)) saved = [];
-      saved.forEach(id => { const panel = grid.querySelector(`[data-panel="${id}"]`); if (panel) grid.append(panel); });
+      saved.forEach(id => { const panel = grid.querySelector(`[data-panel="${id}"]`); if (panel) panel.closest('.zone-grid').append(panel); });
       grid.querySelectorAll('.drag-handle[draggable="true"]').forEach(handle => {
         const panel = handle.closest('.panel');
         handle.addEventListener('dragstart', e => { state.panelDrag = panel; panel.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
         handle.addEventListener('dragend', () => { panel.classList.remove('dragging'); state.panelDrag = null; localStorage.setItem('radar-panel-order', JSON.stringify([...grid.querySelectorAll('.panel')].map(x => x.dataset.panel))); });
       });
-      grid.addEventListener('dragover', e => { if (!state.panelDrag) return; e.preventDefault(); const target = e.target.closest('.panel'); if (target && target !== state.panelDrag) { const box = target.getBoundingClientRect(); const after = e.clientY > box.top + box.height / 2; grid.insertBefore(state.panelDrag, after ? target.nextSibling : target); } });
+      grid.addEventListener('dragover', e => { if (!state.panelDrag) return; e.preventDefault(); const zone = e.target.closest('.zone-grid'); if (!zone || !zone.contains(state.panelDrag)) return; const target = e.target.closest('.panel'); if (target && target !== state.panelDrag) { const box = target.getBoundingClientRect(); const after = e.clientY > box.top + box.height / 2; zone.insertBefore(state.panelDrag, after ? target.nextSibling : target); } else if (!target) { zone.append(state.panelDrag); } });
     }
 
     $('profileSelect').addEventListener('change', () => { const next=$('profileSelect').value; if (next !== state.profile && confirmLoss()) { state.profile=next; load(next); } else $('profileSelect').value=state.profile; });
