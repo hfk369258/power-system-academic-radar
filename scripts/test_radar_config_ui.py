@@ -141,6 +141,50 @@ class RadarConfigUITests(unittest.TestCase):
         saved = self.store.save("basic", payload)
         self.assertEqual(saved["profile"]["daily_target_items"], 7)
 
+    def test_wechat_push_config_is_saved(self):
+        payload = self.store.get("basic")
+        payload["wechat"] = {"enabled": True, "top_n": 5}
+        saved = self.store.save("basic", payload)
+        self.assertTrue(saved["wechat"]["enabled"])
+        self.assertEqual(saved["wechat"]["top_n"], 5)
+        raw = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertTrue(raw["notifications"]["wechat"]["enabled"])
+        self.assertEqual(raw["notifications"]["wechat"]["type"], "wecom_bot")
+        self.assertEqual(raw["notifications"]["wechat"]["top_n"], 5)
+
+    def test_wechat_enabled_adds_enable_wechat_switch(self):
+        payload = self.store.get("basic")
+        payload["wechat"] = {"enabled": True, "top_n": 8}
+        self.store.save("basic", payload)
+        captured = []
+
+        def fake_run(command, **kwargs):
+            captured.append(command)
+            return type("R", (), {"returncode": 0, "stdout": "ok", "stderr": ""})()
+
+        with mock.patch.object(ui.subprocess, "run", side_effect=fake_run):
+            self.store.apply_schedule("basic")
+
+        journal_cmd = captured[1]  # 0=旧任务停用, 1=journal
+        self.assertIn("-EnableEmail", journal_cmd)
+        self.assertIn("-EnableWeChat", journal_cmd)
+
+    def test_wechat_disabled_omits_enable_wechat_switch(self):
+        payload = self.store.get("basic")
+        self.store.save("basic", payload)  # wechat 默认关闭
+        captured = []
+
+        def fake_run(command, **kwargs):
+            captured.append(command)
+            return type("R", (), {"returncode": 0, "stdout": "ok", "stderr": ""})()
+
+        with mock.patch.object(ui.subprocess, "run", side_effect=fake_run):
+            self.store.apply_schedule("basic")
+
+        journal_cmd = captured[1]
+        self.assertIn("-EnableEmail", journal_cmd)
+        self.assertNotIn("-EnableWeChat", journal_cmd)
+
     def test_stop_schedule_disables_all_tasks(self):
         with mock.patch.object(ui.ConfigStore, "_disable_tasks", return_value=None) as disable_mock:
             result = self.store.stop_schedule("basic")

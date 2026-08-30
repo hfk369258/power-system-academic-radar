@@ -356,7 +356,7 @@
       <button class="nav-item" data-target="policy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg><span>筛选规则</span></button>
       <div class="nav-group-label">推送与账号</div>
       <button class="nav-item" data-target="timing"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span>分类推送计划</span></button>
-      <button class="nav-item" data-target="email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg><span>推送邮箱</span></button>
+      <button class="nav-item" data-target="email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg><span>推送通知</span></button>
       <button class="nav-item" data-target="credentials"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg><span>本机接口与账号</span></button>
       <div class="nav-group-label">运行与维护</div>
       <button class="nav-item" data-target="schedule"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="21" y1="4" x2="14" y2="4"/><line x1="10" y1="4" x2="3" y2="4"/><line x1="21" y1="12" x2="12" y2="12"/><line x1="8" y1="12" x2="3" y2="12"/><line x1="21" y1="20" x2="16" y2="20"/><line x1="12" y1="20" x2="3" y2="20"/><line x1="14" y1="2" x2="14" y2="6"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="16" y1="18" x2="16" y2="22"/></svg><span>运行设置</span></button>
@@ -416,8 +416,10 @@
         </div>
       </article>
 <article class="panel" data-panel="email">
-        <header class="panel-head"><div class="panel-title"><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg><h2>推送邮箱</h2><small>收件人可增删改与排序</small></div></div></header>
+        <header class="panel-head"><div class="panel-title"><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg><h2>推送通知</h2><small>邮件与微信推送</small></div></div></header>
         <div class="panel-body">
+          <div class="switch-row"><div class="switch-copy"><strong>启用微信推送</strong><span>企微/ServerChan 机器人 Webhook，地址在“本机接口与账号”中维护</span></div><label class="switch"><input id="wechatEnabled" type="checkbox"><span></span></label></div>
+          <div class="switch-row"><div class="switch-copy"><strong>微信每次推送条数</strong><span>机器人消息有长度限制，默认 8 条</span></div><label class="field" style="width:110px"><input id="wechatTopN" type="number" min="1" max="25"></label></div>
           <div class="switch-row"><div class="switch-copy"><strong>启用邮件推送</strong><span>SMTP 账号可在下方“本机接口与账号”中维护</span></div><label class="switch"><input id="emailEnabled" type="checkbox"><span></span></label></div>
           <label class="field">邮件主题前缀<input id="subjectPrefix" type="text" maxlength="80"></label>
           <label class="field">SMTP 加密方式<select id="smtpSecurity"><option value="ssl">SSL（通常 465）</option><option value="starttls">STARTTLS（通常 587）</option><option value="none">不加密</option></select></label>
@@ -532,7 +534,8 @@
       ['IEEE_XPLORE_API_KEY','IEEE Xplore API Key'], ['ELSEVIER_API_KEY','Elsevier API Key'],
       ['RADAR_SMTP_HOST','SMTP 主机'], ['RADAR_SMTP_PORT','SMTP 端口'],
       ['RADAR_SMTP_USER','SMTP 登录账号'], ['RADAR_SMTP_PASSWORD','SMTP 密码/授权码'],
-      ['RADAR_EMAIL_FROM','发件邮箱'], ['RADAR_EMAIL_TO','环境变量备用收件人（逗号分隔）']
+      ['RADAR_EMAIL_FROM','发件邮箱'], ['RADAR_EMAIL_TO','环境变量备用收件人（逗号分隔）'],
+      ['RADAR_WECHAT_WEBHOOK_URL','微信机器人 Webhook（选填）']
     ];
     const sensitiveKeys = new Set(['DEEPSEEK_API_KEY','SEMANTIC_SCHOLAR_API_KEY','IEEE_XPLORE_API_KEY','ELSEVIER_API_KEY','RADAR_SMTP_PASSWORD']);
     const llmSources = {
@@ -698,6 +701,7 @@
     }
     function collect() {
       const data = clone(state.data);
+      data.wechat = { enabled: $('wechatEnabled').checked, top_n: +$('wechatTopN').value };
       data.profile = { daily_target_en: +$('dailyTargetEn').value, daily_target_zh: +$('dailyTargetZh').value, backfill_enabled: $('backfillEnabled').checked, lookback_days: +$('lookback').value, backfill_lookback_days: +$('backfill').value, candidate_results_per_source: +$('candidateLimit').value };
       data.journal_filter = { enabled: $('journalEnabled').checked };
       scheduleTypes.forEach(([type]) => {
@@ -779,7 +783,7 @@
       $('backfill').value = d.profile.backfill_lookback_days; $('candidateLimit').value = d.profile.candidate_results_per_source;
       $('journalEnabled').checked = d.journal_filter.enabled; $('autoQuery').checked = d.auto_query;
       $('llmEnabled').checked = d.llm.enabled; syncLlmProviderSelect(d.llm.provider); $('llmModel').value = d.llm.model; $('llmBaseUrl').value = d.llm.base_url;
-      $('emailEnabled').checked = d.email.enabled; $('subjectPrefix').value = d.email.subject_prefix; $('smtpSecurity').value = d.email.security;
+      $('emailEnabled').checked = d.email.enabled; $('wechatEnabled').checked = !!(d.wechat && d.wechat.enabled); $('wechatTopN').value = (d.wechat && d.wechat.top_n) || 8; $('subjectPrefix').value = d.email.subject_prefix; $('smtpSecurity').value = d.email.security;
       renderProfilePicker();
       renderSchedules(); renderGroups(); renderSources(); renderEmails(); renderCredentials();
     }
@@ -1084,7 +1088,7 @@
     $('profileSelect').addEventListener('change', () => { const next=$('profileSelect').value; if (next !== state.profile && confirmLoss()) { state.profile=next; load(next); } else $('profileSelect').value=state.profile; });
     $('addProfileBtn').addEventListener('click', () => openProfileEditor('create')); $('renameProfileBtn').addEventListener('click', () => openProfileEditor('rename')); $('deleteProfileBtn').addEventListener('click', deleteProfile);
     $('confirmProfileEditBtn').addEventListener('click', saveProfileEdit); $('cancelProfileEditBtn').addEventListener('click', closeProfileEditor); $('profileNameInput').addEventListener('keydown', event => { if (event.key === 'Enter') saveProfileEdit(); if (event.key === 'Escape') closeProfileEditor(); });
-    ['dailyTargetEn','dailyTargetZh','backfillEnabled','lookback','backfill','candidateLimit','journalEnabled','autoQuery','llmEnabled','llmModel','llmBaseUrl','emailEnabled','subjectPrefix','smtpSecurity'].forEach(id => $(id).addEventListener('input', changed));
+    ['dailyTargetEn','dailyTargetZh','backfillEnabled','lookback','backfill','candidateLimit','journalEnabled','autoQuery','llmEnabled','llmModel','llmBaseUrl','emailEnabled','wechatEnabled','wechatTopN','subjectPrefix','smtpSecurity'].forEach(id => $(id).addEventListener('input', changed));
     $('llmProvider').addEventListener('change', () => applyLlmSource(true));
     $('keywordSearch').addEventListener('input', renderGroups);
     $('addGroupBtn').addEventListener('click', () => { let i = 1; let name = `new_group_${i}`; const names = new Set(state.data.keyword_groups.map(x => x.name)); while (names.has(name)) name = `new_group_${++i}`; state.data.keyword_groups.push({ name, terms: [] }); renderGroups(); changed(); });

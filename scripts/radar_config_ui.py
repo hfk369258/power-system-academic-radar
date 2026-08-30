@@ -67,6 +67,7 @@ CREDENTIAL_FIELDS = (
     "RADAR_SMTP_PASSWORD",
     "RADAR_EMAIL_FROM",
     "RADAR_EMAIL_TO",
+    "RADAR_WECHAT_WEBHOOK_URL",
 )
 GROUP_NAME_RE = re.compile(r"^[A-Za-z0-9_\-\u4e00-\u9fff]{1,40}$")
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
@@ -419,6 +420,10 @@ def editable_view(
             "uses_environment_fallback": not bool(email.get("recipients")),
             "security": "ssl" if email.get("use_ssl", True) else ("starttls" if email.get("use_starttls") else "none"),
         },
+        "wechat": {
+            "enabled": bool(((config.get("notifications") or {}).get("wechat") or {}).get("enabled", False)),
+            "top_n": int(((config.get("notifications") or {}).get("wechat") or {}).get("top_n", 8)),
+        },
         "auto_query": bool((config.get("queries") or {}).get("auto_from_keywords", True)),
     }
 
@@ -474,6 +479,13 @@ def apply_editable_payload(config: dict[str, Any], payload: dict[str, Any]) -> d
             raise ConfigError("不能通过控制台创建未知数据源")
         source["enabled"] = bool(row.get("enabled"))
         source["max_results"] = _bounded_int(row.get("max_results"), "数据源候选量", 1, 1000)
+
+    wechat_input = payload.get("wechat") or {}
+    wechat = updated.setdefault("notifications", {}).setdefault("wechat", {})
+    wechat["enabled"] = bool(wechat_input.get("enabled", False))
+    wechat.setdefault("type", "wecom_bot")
+    wechat.setdefault("webhook_url_env", "RADAR_WECHAT_WEBHOOK_URL")
+    wechat["top_n"] = _bounded_int(wechat_input.get("top_n", 8), "微信推送条数", 1, 25)
 
     journal_input = payload.get("journal_filter") or {}
     journal = updated.setdefault("journal_filter", {})
@@ -1043,6 +1055,8 @@ class ConfigStore:
                     command.append("-Disable")
                 if email.get("enabled"):
                     command.append("-EnableEmail")
+                if ((config.get("notifications") or {}).get("wechat") or {}).get("enabled"):
+                    command.append("-EnableWeChat")
                 if "ieee_xplore_api" in source_types:
                     command.append("-EnableIEEE")
                 if "elsevier_scopus_api" in source_types:
