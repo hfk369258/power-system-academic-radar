@@ -32,7 +32,7 @@
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font: 14px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif;
+      font: 14px/1.6 "Segoe UI Variable Text", "Segoe UI", system-ui, "Microsoft YaHei", sans-serif;
       color: var(--text);
       background:
         radial-gradient(1100px 500px at 85% -8%, rgba(22, 160, 111, .10), transparent 60%),
@@ -51,33 +51,44 @@
 
     .shell { max-width: 1440px; margin: 0 auto; padding: 30px clamp(16px, 3vw, 42px) 64px; }
 
-    /* ---- 顶栏（紧凑单行） ---- */
-    .topbar { display: flex; justify-content: space-between; gap: 24px; align-items: center; margin-bottom: 14px; }
+    /* ---- 顶栏：品牌渐变横幅 ---- */
+    .topbar {
+      display: flex; justify-content: space-between; gap: 24px; align-items: center;
+      margin-bottom: 16px; padding: 22px 26px;
+      border-radius: 18px;
+      background:
+        radial-gradient(600px 220px at 90% -40%, rgba(255,255,255,.14), transparent 60%),
+        linear-gradient(118deg, #0a3325 0%, #0e5138 52%, #14855c 100%);
+      border: 1px solid rgba(255,255,255,.09);
+      box-shadow: 0 14px 40px rgba(10, 51, 37, .35), inset 0 1px 0 rgba(255,255,255,.12);
+    }
     .topbar > div:first-child { display: flex; align-items: center; gap: 16px; min-width: 0; }
     h1 {
-      display: flex; align-items: center; gap: 12px;
-      margin: 0; font-size: clamp(20px, 2.4vw, 26px); line-height: 1.2; letter-spacing: -.02em; font-weight: 700; white-space: nowrap;
+      display: flex; align-items: center; gap: 13px;
+      margin: 0; font-size: clamp(20px, 2.4vw, 25px); line-height: 1.2; letter-spacing: -.02em;
+      font-weight: 700; white-space: nowrap; color: #f2faf6;
     }
     h1::before {
-      content: ""; width: 38px; height: 38px; flex: none; border-radius: 12px;
+      content: ""; width: 40px; height: 40px; flex: none; border-radius: 12px;
       background:
         radial-gradient(circle at 50% 50%, rgba(255,255,255,.95) 0 3px, transparent 3.5px),
         radial-gradient(circle at 50% 50%, transparent 0 7px, rgba(255,255,255,.55) 7px 8px, transparent 8.5px),
-        radial-gradient(circle at 50% 50%, transparent 0 12px, rgba(255,255,255,.30) 12px 13px, transparent 13.5px),
         linear-gradient(135deg, var(--brand-bright), var(--brand-deep));
-      box-shadow: 0 6px 16px rgba(15, 122, 85, .35), inset 0 1px 0 rgba(255,255,255,.35);
+      box-shadow: 0 6px 18px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.4);
     }
-    .subtitle { margin: 4px 0 0; color: var(--muted); max-width: 640px; font-size: 13px; }
+    .subtitle { margin: 4px 0 0; color: rgba(240, 250, 246, .62); max-width: 640px; font-size: 13px; }
     .status {
       display: flex; gap: 9px; align-items: center; padding: 9px 16px;
-      border: 1px solid var(--line); border-radius: 999px; background: var(--card);
-      white-space: nowrap; box-shadow: var(--shadow-sm); font-weight: 500;
+      border: 1px solid rgba(255,255,255,.16); border-radius: 999px;
+      background: rgba(255,255,255,.08); backdrop-filter: blur(10px);
+      white-space: nowrap; font-weight: 500; color: #eaf6f0;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.1);
     }
-    .dot { position: relative; width: 9px; height: 9px; border-radius: 50%; background: #23a86e; }
-    .dot::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; background: rgba(35, 168, 110, .30); animation: pulse 2.2s ease-out infinite; }
+    .dot { position: relative; width: 9px; height: 9px; border-radius: 50%; background: #35d492; }
+    .dot::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; background: rgba(53, 212, 146, .30); animation: pulse 2.2s ease-out infinite; }
     @keyframes pulse { 0% { transform: scale(.5); opacity: .9; } 70% { transform: scale(1.6); opacity: 0; } 100% { opacity: 0; } }
-    .dot.dirty { background: #e29b2e; }
-    .dot.dirty::after { background: rgba(226, 155, 46, .30); }
+    .dot.dirty { background: #f0b03e; }
+    .dot.dirty::after { background: rgba(240, 176, 62, .30); }
 
     /* ---- 工具栏 ---- */
     .toolbar {
@@ -118,7 +129,7 @@
     .btn:disabled { opacity: .55; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
 
     /* ---- 三分区 + 组内双列瀑布流 ---- */
-    .grid { display: grid; gap: 30px; }
+    .grid { display: grid; gap: 34px; }
     .zone-title { display: flex; gap: 10px; align-items: center; margin: 0 0 13px; font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: .14em; }
     .zone-title .zone-ico { width: 9px; height: 9px; border-radius: 50%; background: var(--brand-bright); box-shadow: 0 0 0 4px var(--brand-soft); flex: none; }
     .zone-title::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-strong), transparent); }
@@ -147,7 +158,7 @@
     .panel.dragging { opacity: .45; transform: scale(.985); }
     .panel-head {
       display: flex; justify-content: space-between; gap: 12px; align-items: center;
-      padding: 16px 18px; border-bottom: 1px solid var(--line);
+      padding: 15px 18px; border-bottom: 1px solid var(--line);
       background: linear-gradient(180deg, #fbfdfc 0%, #fff 100%);
     }
     .panel::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--accent, var(--brand)), transparent 72%); opacity: .85; z-index: 1; }
@@ -163,33 +174,20 @@
     .panel[data-panel="maintenance"]{ --accent: #8a6d52; --accent-soft: #f4efe9; }
     .panel-title { display: flex; gap: 10px; align-items: center; }
     .panel-title h2 { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 15.5px; font-weight: 650; letter-spacing: -.01em; }
-    .panel-title h2 { position: relative; }
-    .panel-title h2::before {
-      content: ""; width: 30px; height: 30px; flex: none; border-radius: 9px;
+    .panel-title h2 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 15.5px; font-weight: 650; letter-spacing: -.01em; }
+    .panel-title .pico {
+      width: 32px; height: 32px; flex: none; padding: 7px;
+      border-radius: 9px; color: var(--accent, var(--brand));
       background: var(--accent-soft, var(--brand-soft));
       border: 1px solid var(--line-strong);
+      transition: transform .18s cubic-bezier(.34,1.4,.64,1);
     }
-    .panel-title h2::after {
-      content: ""; position: absolute; left: 17px; top: 50%; transform: translateY(-50%);
-      width: 16px; height: 16px;
-      background: var(--accent, var(--brand));
-      -webkit-mask: var(--icon) center / 16px no-repeat;
-      mask: var(--icon) center / 16px no-repeat;
-    }
-    .panel[data-panel="schedule"] { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1="21" y1="4" x2="14" y2="4"/%3E%3Cline x1="10" y1="4" x2="3" y2="4"/%3E%3Cline x1="21" y1="12" x2="12" y2="12"/%3E%3Cline x1="8" y1="12" x2="3" y2="12"/%3E%3Cline x1="21" y1="20" x2="16" y2="20"/%3E%3Cline x1="12" y1="20" x2="3" y2="20"/%3E%3Cline x1="14" y1="2" x2="14" y2="6"/%3E%3Cline x1="8" y1="10" x2="8" y2="14"/%3E%3Cline x1="16" y1="18" x2="16" y2="22"/%3E%3C/svg%3E"); }
-    .panel[data-panel="sources"] { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d="M4 11a9 9 0 0 1 9 9"/%3E%3Cpath d="M4 4a16 16 0 0 1 16 16"/%3E%3Ccircle cx="5" cy="19" r="1"/%3E%3C/svg%3E"); }
-    .panel[data-panel="policy"] { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx="12" cy="12" r="10"/%3E%3Cpolygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/%3E%3C/svg%3E"); }
-    .panel[data-panel="timing"] { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx="12" cy="12" r="10"/%3E%3Cpolyline points="12 6 12 12 16 14"/%3E%3C/svg%3E"); }
-    .panel[data-panel="email"] { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/%3E%3Cpolyline points="22,6 12,13 2,6"/%3E%3C/svg%3E"); }
-    .panel[data-panel="keywords"] { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/%3E%3Cline x1="7" y1="7" x2="7.01" y2="7"/%3E%3C/svg%3E"); }
-    .panel[data-panel="credentials"] { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/%3E%3C/svg%3E"); }
-    .panel[data-panel="history"] { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/%3E%3Cpolyline points="14 2 14 8 20 8"/%3E%3Cline x1="16" y1="13" x2="8" y2="13"/%3E%3Cline x1="16" y1="17" x2="8" y2="17"/%3E%3C/svg%3E"); }
-    .panel[data-panel="update"] { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points="23 4 23 10 17 10"/%3E%3Cpolyline points="1 20 1 14 7 14"/%3E%3Cpath d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/%3E%3C/svg%3E"); }
-    .panel[data-panel="maintenance"] { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points="3 6 5 6 21 6"/%3E%3Cpath d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/%3E%3C/svg%3E"); }
-    .panel-title small { color: var(--muted); }
+    .panel:hover .pico { transform: scale(1.08) rotate(-3deg); }
+    .panel-title > div { display: flex; align-items: center; gap: 11px; flex-wrap: wrap; min-width: 0; }
+    .panel-title small { color: var(--muted); flex-basis: 100%; padding-left: 42px; margin-top: -4px; }
     .drag-handle { user-select: none; color: #b6c4bc; cursor: grab; border: 0; background: transparent; font-size: 17px; padding: 3px; transition: color .15s; }
     .drag-handle:hover { color: var(--brand); }
-    .panel-body { padding: 18px; }
+    .panel-body { padding: 16px 18px 18px; }
 
     /* ---- 表单 ---- */
     .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
@@ -369,7 +367,7 @@
   <h3 class="zone-title"><span class="zone-ico"></span>检索与筛选</h3>
   <div class="zone-grid">
 <article class="panel" data-panel="keywords">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动关键词模块">⠿</button><div><h2>关键词</h2><small id="keywordCount">0 个词</small></div></div></header>
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动关键词模块">⠿</button><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg><h2>关键词</h2><small id="keywordCount">0 个词</small></div></div></header>
         <div class="panel-body">
           <details class="keyword-details" id="keywordDetails">
             <summary>编辑关键词与分组</summary>
@@ -381,11 +379,11 @@
         </div>
       </article>
 <article class="panel" data-panel="sources">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动数据源模块">⠿</button><div><h2>数据源</h2><small>启停与单源抓取上限</small></div></div></header>
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动数据源模块">⠿</button><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg><h2>数据源</h2><small>启停与单源抓取上限</small></div></div></header>
         <div class="panel-body" id="sourceList"></div>
       </article>
 <article class="panel" data-panel="policy">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动筛选规则">⠿</button><div><h2>筛选规则</h2><small>期刊限定与检索式生成</small></div></div></header>
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动筛选规则">⠿</button><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg><h2>筛选规则</h2><small>期刊限定与检索式生成</small></div></div></header>
         <div class="panel-body">
           <div class="switch-row"><div class="switch-copy"><strong>启用期刊白名单</strong><span>仅保留允许的期刊范围</span></div><label class="switch"><input id="journalEnabled" type="checkbox"><span></span></label></div>
           <div class="switch-row"><div class="switch-copy"><strong>关键词自动生成检索式</strong><span>保存后的关键词直接参与下一次检索</span></div><label class="switch"><input id="autoQuery" type="checkbox"><span></span></label></div>
@@ -397,7 +395,7 @@
   <h3 class="zone-title"><span class="zone-ico"></span>推送与账号</h3>
   <div class="zone-grid">
 <article class="panel" data-panel="timing">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动推送计划">⠿</button><div><h2>分类推送计划</h2><small>三类文献互不混发</small></div></div></header>
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动推送计划">⠿</button><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><h2>分类推送计划</h2><small>三类文献互不混发</small></div></div></header>
         <div class="panel-body">
           <div class="schedule-list" id="scheduleList"></div>
           <div class="section-actions"><button class="btn primary" id="applyScheduleBtn">保存并应用计划</button><button class="btn danger" id="stopScheduleBtn">停止任务</button></div>
@@ -405,7 +403,7 @@
         </div>
       </article>
 <article class="panel" data-panel="email">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动邮件模块">⠿</button><div><h2>推送邮箱</h2><small>收件人可增删改与排序</small></div></div></header>
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动邮件模块">⠿</button><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg><h2>推送邮箱</h2><small>收件人可增删改与排序</small></div></div></header>
         <div class="panel-body">
           <div class="switch-row"><div class="switch-copy"><strong>启用邮件推送</strong><span>SMTP 账号可在下方“本机接口与账号”中维护</span></div><label class="switch"><input id="emailEnabled" type="checkbox"><span></span></label></div>
           <label class="field">邮件主题前缀<input id="subjectPrefix" type="text" maxlength="80"></label>
@@ -416,7 +414,7 @@
         </div>
       </article>
 <article class="panel wide" data-panel="credentials">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动接口账号模块">⠿</button><div><h2>本机接口与账号</h2><small>每个推送方案独立保存</small></div></div></header>
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动接口账号模块">⠿</button><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg><h2>本机接口与账号</h2><small>每个推送方案独立保存</small></div></div></header>
         <div class="panel-body">
           <div class="switch-row"><div class="switch-copy"><strong>启用 DeepSeek 解读</strong><span>摘要翻译、文章概括和每日简报</span></div><label class="switch"><input id="llmEnabled" type="checkbox"><span></span></label></div>
           <div class="credential-grid" style="margin:14px 0">
@@ -452,7 +450,7 @@
   <h3 class="zone-title"><span class="zone-ico"></span>运行与维护</h3>
   <div class="zone-grid">
 <article class="panel" data-panel="schedule">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动运行设置">⠿</button><div><h2>运行设置</h2><small>控制每天检索与推送的规模</small></div></div></header>
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动运行设置">⠿</button><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="21" y1="4" x2="14" y2="4"/><line x1="10" y1="4" x2="3" y2="4"/><line x1="21" y1="12" x2="12" y2="12"/><line x1="8" y1="12" x2="3" y2="12"/><line x1="21" y1="20" x2="16" y2="20"/><line x1="12" y1="20" x2="3" y2="20"/><line x1="14" y1="2" x2="14" y2="6"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="16" y1="18" x2="16" y2="22"/></svg><h2>运行设置</h2><small>控制每天检索与推送的规模</small></div></div></header>
         <div class="panel-body form-grid">
           <label class="field">英文每日篇数<input id="dailyTargetEn" type="number" min="0" max="100"></label>
           <label class="field">中文每日篇数<input id="dailyTargetZh" type="number" min="0" max="100"></label>
@@ -463,7 +461,7 @@
         </div>
       </article>
 <article class="panel wide" data-panel="history">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动发送记录">⠿</button><div><h2>发送记录</h2><small>各方案每次运行的日报与投递结果</small></div></div></header>
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动发送记录">⠿</button><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><h2>发送记录</h2><small>各方案每次运行的日报与投递结果</small></div></div></header>
         <div class="panel-body">
           <div class="history-tools">
             <select id="historyType" aria-label="按文献类型过滤">
@@ -476,7 +474,7 @@
         </div>
       </article>
 <article class="panel wide" data-panel="update">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动更新模块">⠿</button><div><h2>软件更新</h2><small id="curVersion"></small></div></div></header>
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动更新模块">⠿</button><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg><h2>软件更新</h2><small id="curVersion"></small></div></div></header>
         <div class="panel-body">
           <div class="history-tools"><button class="btn" id="checkUpdateBtn">检查更新</button><button class="btn" id="applyUpdateBtn" hidden>一键升级</button><small id="updateSummary"></small></div>
           <div class="history-list" id="updateDetail" hidden></div>
@@ -484,7 +482,7 @@
         </div>
       </article>
 <article class="panel wide" data-panel="maintenance">
-        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动维护模块">⠿</button><div><h2>维护与清理</h2><small>清理本机历史遗留的凭据备份与回收目录</small></div></div></header>
+        <header class="panel-head"><div class="panel-title"><button class="drag-handle" draggable="true" aria-label="拖动维护模块">⠿</button><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><h2>维护与清理</h2><small>清理本机历史遗留的凭据备份与回收目录</small></div></div></header>
         <div class="panel-body">
           <div class="history-tools" style="margin-top:16px"><strong>方案管理</strong></div>
           <div class="profile-tools">
