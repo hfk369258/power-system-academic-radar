@@ -22,6 +22,7 @@
       --danger-soft: #fdeeee;
       --warn: #b97f24;
       --input-bg: #fbfdfc;
+      --input-focus-bg: #ffffff;
       --inner-bg: #fafdfb;
       --inner-line: #e6ece8;
       --shadow-sm: 0 1px 2px rgba(21, 44, 33, .05), 0 2px 8px rgba(21, 44, 33, .04);
@@ -165,7 +166,7 @@
       color: var(--text); background: var(--input-bg); outline: none; transition: border-color .15s, box-shadow .15s, background .15s;
     }
     input:hover, select:hover { border-color: #b4c6bb; }
-    input:focus, select:focus { border-color: var(--brand); background: #fff; box-shadow: 0 0 0 3.5px var(--brand-ring); }
+    input:focus, select:focus { border-color: var(--brand); background: var(--input-focus-bg); box-shadow: 0 0 0 3.5px var(--brand-ring); }
     select { cursor: pointer; }
 
     /* ---- 开关 ---- */
@@ -200,7 +201,7 @@
     .group-head { display: grid; grid-template-columns: auto 1fr auto; gap: 7px; align-items: center; margin-bottom: 9px; }
     .group-head input { font-weight: 600; background: transparent; }
     .terms { display: grid; gap: 6px; min-height: 34px; }
-    .term { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: center; padding: 5px 8px; border-radius: 9px; background: #fff; border: 1px solid var(--inner-line); transition: border-color .15s, box-shadow .15s; }
+    .term { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: center; padding: 5px 8px; border-radius: 9px; background: var(--card); border: 1px solid var(--inner-line); transition: border-color .15s, box-shadow .15s; }
     .term:hover { border-color: var(--line-strong); box-shadow: var(--shadow-sm); }
     .term[hidden] { display: none; }
     .term input { border: 0; padding: 4px; background: transparent; }
@@ -306,6 +307,7 @@
         --danger-soft: rgba(226, 105, 111, .13);
         --warn: #d9a355;
         --input-bg: #1b2521;
+        --input-focus-bg: #222e28;
         --inner-bg: #1a231f;
         --inner-line: #2b3931;
         --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3), 0 2px 8px rgba(0, 0, 0, .25);
@@ -327,6 +329,7 @@
       .switch span { background: #3a4a42; }
       ::-webkit-scrollbar-thumb { background: #33443c; background-clip: content-box; }
       ::-webkit-scrollbar-thumb:hover { background: #46594f; background-clip: content-box; }
+      .badge.skip { color: var(--warn); background: rgba(217, 163, 85, .14); }
       .badge.legacy { color: var(--muted); background: rgba(255,255,255,.05); }
       .empty { background: rgba(255,255,255,.02); }
       .toast { background: rgba(16, 24, 20, .97); }

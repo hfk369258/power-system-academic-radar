@@ -451,6 +451,24 @@ class ControlPanelHtmlTests(unittest.TestCase):
         self.assertRegex(self.html, r"\.dot\s*\{")
         self.assertRegex(self.html, r"\.dot\.dirty\s*\{")
 
+    def test_hardcoded_white_backgrounds_have_dark_override(self):
+        # 写死白色背景的选择器必须在深色媒体查询中有覆盖（开关圆点等白名单除外）
+        import re
+
+        style = re.search(r"<style>(.*?)</style>", self.html, re.S).group(1)
+        dark_match = re.search(r"@media \(prefers-color-scheme: dark\) \{(.*)\}", style, re.S)
+        # 深色块是 style 末尾的媒体查询；粗略切分即可满足本测试目的
+        dark = dark_match.group(1)
+        base = style[: dark_match.start()]
+        allowlist = {".switch span::after"}  # 开关圆点两种主题下都应为白色
+        offenders = set()
+        for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", base):
+            if re.search(r"background:\s*#fff\b", body):
+                names = {s.strip() for s in selector.split(",")}
+                if names - allowlist and not any(n in dark for n in names):
+                    offenders.update(names - allowlist)
+        self.assertEqual(offenders, set(), f"白色背景缺少深色覆盖: {sorted(offenders)}")
+
 
 if __name__ == "__main__":
     unittest.main()
