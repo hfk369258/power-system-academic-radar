@@ -411,5 +411,46 @@ class RadarUIHandlerSecurityTests(unittest.TestCase):
             handler._require_local_request()
 
 
+class ControlPanelHtmlTests(unittest.TestCase):
+    """控制台单页应用的静态一致性：防重构时删坏 HTML/JS 引用。"""
+
+    HTML_PATH = Path(__file__).resolve().parents[1] / "assets" / "radar_control_panel.html"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = cls.HTML_PATH.read_text(encoding="utf-8")
+
+    def test_js_referenced_ids_exist(self):
+        import re
+
+        declared = set(re.findall(r'id="([^"]+)"', self.html))
+        referenced = set(re.findall(r"\$\('([^']+)'\)", self.html))
+        referenced |= set(re.findall(r"getElementById\(\"([^\"]+)\"\)", self.html))
+        # schedule-{type}-{field} 是 renderSchedules() 动态创建的
+        dynamic = {f"schedule-{t}-{f}" for t in ("journal", "preprint", "conference")
+                   for f in ("enabled", "frequency", "time", "weekday")}
+        missing = referenced - declared - dynamic
+        self.assertEqual(missing, set(), f"JS 引用了不存在的元素 id: {sorted(missing)}")
+
+    def test_nav_targets_have_panels(self):
+        import re
+
+        targets = set(re.findall(r'class="nav-item" data-target="([^"]+)"', self.html))
+        panels = set(re.findall(r'class="panel[^"]*" data-panel="([^"]+)"', self.html))
+        self.assertEqual(targets - panels, set(), f"导航指向了不存在的面板: {sorted(targets - panels)}")
+
+    def test_ids_are_unique(self):
+        import re
+
+        ids = re.findall(r'id="([^"]+)"', self.html)
+        duplicates = {i for i in ids if ids.count(i) > 1}
+        self.assertEqual(duplicates, set(), f"重复的 id: {sorted(duplicates)}")
+
+    def test_status_dot_styled_in_base_css(self):
+        # 未保存修改指示点：基础（浅色）样式必须存在，不能只靠深色媒体查询
+        self.assertRegex(self.html, r"\.dot\s*\{")
+        self.assertRegex(self.html, r"\.dot\.dirty\s*\{")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -85,16 +85,15 @@
     .nav-item.active::before { content: ""; position: absolute; left: -4px; top: 50%; transform: translateY(-50%); width: 3px; height: 17px; border-radius: 99px; background: var(--brand); }
     .side-foot { display: grid; gap: 10px; padding: 13px 7px 0; border-top: 1px solid var(--line); }
     .side-status { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; }
+    .dot { width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 3.5px var(--brand-soft); transition: background .2s, box-shadow .2s; }
+    .dot.dirty { background: var(--warn); box-shadow: 0 0 0 3.5px rgba(185, 127, 36, .16); animation: dotPulse 1.6s ease-in-out infinite; }
+    @keyframes dotPulse { 0%, 100% { box-shadow: 0 0 0 3.5px rgba(185, 127, 36, .16); } 50% { box-shadow: 0 0 0 6px rgba(185, 127, 36, .07); } }
     .side-actions { display: flex; gap: 8px; }
     .side-actions .btn { flex: 1; padding: 7px 8px; font-size: 12.5px; }
     .content { flex: 1; min-width: 0; padding: 28px clamp(20px, 4vw, 52px) 60px; }
     .content .panel { width: 100%; margin: 0; height: auto; animation: panelIn .22s cubic-bezier(.25,.9,.35,1); }
     @keyframes panelIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
     .content .panel[hidden] { display: none; }
-    /* 导航模式下不再需要分区标题与双列网格 */
-    .content .zone-title { display: none; }
-    .content .zone { display: contents; }
-    .content .zone-grid { display: block; }
 
     /* ---- 按钮 ---- */
     .tab, .btn {
@@ -114,37 +113,18 @@
     .btn.danger { color: var(--danger); }
     .btn.danger:hover { border-color: var(--danger); color: #fff; background: linear-gradient(135deg, #d4626a, var(--danger)); box-shadow: 0 4px 14px rgba(194, 69, 78, .3); }
     .btn.icon { padding: 5px 8px; border: 0; background: transparent; }
+    .btn.icon svg { width: 15px; height: 15px; display: block; }
     .btn.icon:hover { transform: none; box-shadow: none; background: var(--brand-soft); }
     .btn:disabled { opacity: .55; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
 
-    /* ---- 三分区 + 组内双列瀑布流 ---- */
-    .grid { display: grid; gap: 34px; }
-    .zone-title { display: flex; gap: 10px; align-items: center; margin: 0 0 13px; font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: .14em; }
-    .zone-title .zone-ico { width: 9px; height: 9px; border-radius: 50%; background: var(--brand-bright); box-shadow: 0 0 0 4px var(--brand-soft); flex: none; }
-    .zone-title::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-strong), transparent); }
-    .zone-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: stretch; }
-    .zone-grid .panel { margin: 0; height: 100%; }
-    .zone-grid .panel.wide { grid-column: 1 / -1; }
-    /* 高面板通栏、矮面板配对，避免单侧空洞 */
-    .zone[data-zone="search"] .zone-grid .panel[data-panel="keywords"] { order: 1; }
-    .zone[data-zone="search"] .zone-grid .panel[data-panel="policy"] { order: 2; }
-    .zone[data-zone="search"] .zone-grid .panel[data-panel="sources"] { grid-column: 1 / -1; order: 3; }
-    .zone[data-zone="push"] .zone-grid .panel[data-panel="credentials"] { grid-column: 1 / -1; order: 3; }
-    .zone[data-zone="ops"] .zone-grid .panel[data-panel="schedule"] { order: 1; }
-    .zone[data-zone="ops"] .zone-grid .panel[data-panel="update"] { order: 2; }
-    .zone[data-zone="ops"] .zone-grid .panel[data-panel="history"] { grid-column: 1 / -1; order: 3; }
-    .zone[data-zone="ops"] .zone-grid .panel[data-panel="maintenance"] { order: 4; }
     .panel {
       position: relative; width: 100%;
-      break-inside: avoid; -webkit-column-break-inside: avoid;
-      margin: 0 0 18px;
+      margin: 0;
       border: 1px solid var(--line); border-radius: var(--radius);
       background: var(--card); box-shadow: var(--shadow-sm);
       overflow: hidden; transition: opacity .15s, transform .15s, box-shadow .2s ease;
     }
     .panel:hover { box-shadow: var(--shadow-md); }
-    .panel.wide { column-span: all; }
-    .panel.dragging { opacity: .45; transform: scale(.985); }
     .panel-head {
       display: flex; justify-content: space-between; gap: 12px; align-items: center;
       padding: 15px 18px; border-bottom: 1px solid var(--line);
@@ -163,7 +143,6 @@
     .panel[data-panel="maintenance"]{ --accent: #8a6d52; --accent-soft: #f4efe9; }
     .panel-title { display: flex; gap: 10px; align-items: center; }
     .panel-title h2 { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 15.5px; font-weight: 650; letter-spacing: -.01em; }
-    .panel-title h2 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 15.5px; font-weight: 650; letter-spacing: -.01em; }
     .panel-title .pico {
       width: 32px; height: 32px; flex: none; padding: 7px;
       border-radius: 9px; color: var(--accent, var(--brand));
@@ -346,7 +325,6 @@
       .toolbar-divider { background: var(--line-strong); }
       .tab, .btn { background: var(--card); }
       .switch span { background: #3a4a42; }
-      .dot { background: var(--brand-bright); }
       ::-webkit-scrollbar-thumb { background: #33443c; background-clip: content-box; }
       ::-webkit-scrollbar-thumb:hover { background: #46594f; background-clip: content-box; }
       .badge.legacy { color: var(--muted); background: rgba(255,255,255,.05); }
@@ -354,7 +332,7 @@
       .toast { background: rgba(16, 24, 20, .97); }
     }
 
-    @media (max-width: 980px) { .zone-grid { grid-template-columns: 1fr; } .history-row { grid-template-columns: 1fr 1fr; } .history-row .digest { grid-column: span 2; } }
+    @media (max-width: 980px) { .history-row { grid-template-columns: 1fr 1fr; } .history-row .digest { grid-column: span 2; } }
     @media (max-width: 960px) { .app { flex-direction: column; } .sidebar { width: 100%; height: auto; position: static; border-right: 0; border-bottom: 1px solid var(--line); } .side-nav { display: flex; flex-wrap: wrap; overflow-x: auto; } .nav-group-label { flex-basis: 100%; } .nav-item { width: auto; } .nav-item.active::before { display: none; } }
     @media (max-width: 620px) { .form-grid, .schedule-fields, .profile-editor, .credential-grid { grid-template-columns: 1fr; } .credential-grid .span-2 { grid-column: span 1; } .source-row { grid-template-columns: 1fr 82px 42px; } }
   </style>
@@ -397,14 +375,11 @@
   <main class="content" id="contentPane">
 
 
-    <section class="grid" id="panelGrid">
-<section class="zone" data-zone="search">
-  <h3 class="zone-title"><span class="zone-ico"></span>检索与筛选</h3>
-  <div class="zone-grid">
+    <section id="panelGrid">
 <article class="panel" data-panel="keywords">
         <header class="panel-head"><div class="panel-title"><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg><h2>关键词</h2><small id="keywordCount">0 个词</small></div></div></header>
         <div class="panel-body">
-          <details class="keyword-details" id="keywordDetails">
+          <details class="keyword-details" id="keywordDetails" open>
             <summary>编辑关键词与分组</summary>
             <div class="keyword-editor">
               <div class="keyword-tools"><input id="keywordSearch" type="search" placeholder="查找关键词…" aria-label="查找关键词"><button class="btn" id="addGroupBtn">新增分组</button></div>
@@ -431,11 +406,6 @@
           <div class="switch-row"><div class="switch-copy"><strong>关键词自动生成检索式</strong><span>保存后的关键词直接参与下一次检索</span></div><label class="switch"><input id="autoQuery" type="checkbox"><span></span></label></div>
         </div>
       </article>
-  </div>
-</section>
-<section class="zone" data-zone="push">
-  <h3 class="zone-title"><span class="zone-ico"></span>推送与账号</h3>
-  <div class="zone-grid">
 <article class="panel" data-panel="timing">
         <header class="panel-head"><div class="panel-title"><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><h2>分类推送计划</h2><small>三类文献互不混发</small></div></div></header>
         <div class="panel-body">
@@ -457,7 +427,7 @@
           <p class="hint" id="emailHint"></p>
         </div>
       </article>
-<article class="panel wide" data-panel="credentials">
+<article class="panel" data-panel="credentials">
         <header class="panel-head"><div class="panel-title"><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg><h2>本机接口与账号</h2><small>每个推送方案独立保存</small></div></div></header>
         <div class="panel-body">
           <div class="switch-row"><div class="switch-copy"><strong>启用 DeepSeek 解读</strong><span>摘要翻译、文章概括和每日简报</span></div><label class="switch"><input id="llmEnabled" type="checkbox"><span></span></label></div>
@@ -488,11 +458,6 @@
           <p class="hint">内容保存在插件目录的本机环境文件中，并自动生成备份。页面仅监听 127.0.0.1，不会把这些值上传到外部服务。</p>
         </div>
       </article>
-  </div>
-</section>
-<section class="zone" data-zone="ops">
-  <h3 class="zone-title"><span class="zone-ico"></span>运行与维护</h3>
-  <div class="zone-grid">
 <article class="panel" data-panel="schedule">
         <header class="panel-head"><div class="panel-title"><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="21" y1="4" x2="14" y2="4"/><line x1="10" y1="4" x2="3" y2="4"/><line x1="21" y1="12" x2="12" y2="12"/><line x1="8" y1="12" x2="3" y2="12"/><line x1="21" y1="20" x2="16" y2="20"/><line x1="12" y1="20" x2="3" y2="20"/><line x1="14" y1="2" x2="14" y2="6"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="16" y1="18" x2="16" y2="22"/></svg><h2>运行设置</h2><small>控制每天检索与推送的规模</small></div></div></header>
         <div class="panel-body form-grid">
@@ -504,7 +469,7 @@
           <label class="field">每个来源候选量<input id="candidateLimit" type="number" min="10" max="1000"></label>
         </div>
       </article>
-<article class="panel wide" data-panel="history">
+<article class="panel" data-panel="history">
         <header class="panel-head"><div class="panel-title"><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><h2>发送记录</h2><small>各方案每次运行的日报与投递结果</small></div></div></header>
         <div class="panel-body">
           <div class="history-tools">
@@ -517,7 +482,7 @@
           <div class="history-list" id="historyList"></div>
         </div>
       </article>
-<article class="panel wide" data-panel="update">
+<article class="panel" data-panel="update">
         <header class="panel-head"><div class="panel-title"><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg><h2>软件更新</h2><small id="curVersion"></small></div></div></header>
         <div class="panel-body">
           <div class="history-tools"><button class="btn" id="checkUpdateBtn">检查更新</button><button class="btn" id="applyUpdateBtn" hidden>一键升级</button><small id="updateSummary"></small></div>
@@ -525,7 +490,7 @@
           <p class="hint">一键升级会自动下载新版本、替换程序文件并重启控制台；方案、凭据、历史报告与日志全部保留。升级过程中请勿关闭窗口或断网。</p>
         </div>
       </article>
-<article class="panel wide" data-panel="maintenance">
+<article class="panel" data-panel="maintenance">
         <header class="panel-head"><div class="panel-title"><div><svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><h2>维护与清理</h2><small>清理本机历史遗留的凭据备份与回收目录</small></div></div></header>
         <div class="panel-body">
           <div class="history-tools" style="margin-top:16px"><strong>方案管理</strong></div>
@@ -547,15 +512,13 @@
           <p class="hint">仅列出 profiles 目录下可能含旧凭据副本的隐藏目录（删除方案回收目录、历史备份）。清理前请确认不再需要，删除后不可恢复。</p>
         </div>
       </article>
-  </div>
-</section>
 </section>
   </main>
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script>
-    const state = { profile: '', profiles: [], maxProfiles: 20, profileEditorMode: '', deleteArmed: false, deleteInFlight: false, data: null, dirty: false, credentialsDirty: false, panelDrag: null, termDrag: null, emailDrag: null, groupDrag: null };
+    const state = { profile: '', profiles: [], maxProfiles: 20, profileEditorMode: '', deleteArmed: false, deleteInFlight: false, data: null, dirty: false, credentialsDirty: false, termDrag: null, emailDrag: null, groupDrag: null };
     const $ = id => document.getElementById(id);
     const clone = value => JSON.parse(JSON.stringify(value));
     const credentialFields = [
@@ -976,12 +939,15 @@
           const wrap=document.createElement('span');
           wrap.style.cssText='display:flex;gap:6px;align-items:center';
           const toggle=document.createElement('button');
-          toggle.type='button'; toggle.className='btn icon'; toggle.textContent='👁'; toggle.title='显示/隐藏';
+          toggle.type='button'; toggle.className='btn icon'; toggle.title='显示/隐藏';
           toggle.setAttribute('aria-label',`显示${label}`);
+          const eyeIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>';
+          const eyeOffIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19M6.61 6.61A13.53 13.53 0 0 0 2 12s3.5 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/></svg>';
+          toggle.innerHTML=eyeIcon;
           toggle.addEventListener('click',()=>{
             const show=input.type==='password';
             input.type=show?'text':'password';
-            toggle.textContent=show?'🙈':'👁';
+            toggle.innerHTML=show?eyeOffIcon:eyeIcon;
             toggle.setAttribute('aria-label',(show?'隐藏':'显示')+label);
           });
           wrap.append(input,toggle);
@@ -1099,21 +1065,6 @@
       }
     }
 
-    function setupPanels() {
-      const grid = $('panelGrid');
-      let saved = [];
-      try { saved = JSON.parse(localStorage.getItem('radar-panel-order') || '[]'); }
-      catch { localStorage.removeItem('radar-panel-order'); }
-      if (!Array.isArray(saved)) saved = [];
-      saved.forEach(id => { const panel = grid.querySelector(`[data-panel="${id}"]`); if (panel) panel.closest('.zone-grid').append(panel); });
-      grid.querySelectorAll('.panel-head .drag-handle[draggable="true"]').forEach(handle => {
-        const panel = handle.closest('.panel');
-        handle.addEventListener('dragstart', e => { state.panelDrag = panel; panel.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
-        handle.addEventListener('dragend', () => { panel.classList.remove('dragging'); state.panelDrag = null; localStorage.setItem('radar-panel-order', JSON.stringify([...grid.querySelectorAll('.panel')].map(x => x.dataset.panel))); });
-      });
-      grid.addEventListener('dragover', e => { if (!state.panelDrag) return; e.preventDefault(); const zone = e.target.closest('.zone-grid'); if (!zone || !zone.contains(state.panelDrag)) return; const target = e.target.closest('.panel'); if (target && target !== state.panelDrag) { const box = target.getBoundingClientRect(); const after = e.clientY > box.top + box.height / 2; zone.insertBefore(state.panelDrag, after ? target.nextSibling : target); } else if (!target) { zone.append(state.panelDrag); } });
-    }
-
     $('profileSelect').addEventListener('change', () => { const next=$('profileSelect').value; if (next !== state.profile && confirmLoss()) { state.profile=next; load(next); } else $('profileSelect').value=state.profile; });
     $('addProfileBtn').addEventListener('click', () => openProfileEditor('create')); $('renameProfileBtn').addEventListener('click', () => openProfileEditor('rename')); $('deleteProfileBtn').addEventListener('click', deleteProfile);
     $('confirmProfileEditBtn').addEventListener('click', saveProfileEdit); $('cancelProfileEditBtn').addEventListener('click', closeProfileEditor); $('profileNameInput').addEventListener('keydown', event => { if (event.key === 'Enter') saveProfileEdit(); if (event.key === 'Escape') closeProfileEditor(); });
@@ -1128,6 +1079,7 @@
     $('scanMaintenanceBtn').addEventListener('click', scanMaintenance); $('cleanMaintenanceBtn').addEventListener('click', cleanMaintenance);
     $('restoreBtn').addEventListener('click', async () => { if (!confirmLoss()) return; if (!confirm('恢复到上一次保存前的配置？当前内容将被替换。')) return; try { const result = await api(`/api/restore?profile=${state.profile}`, { method: 'POST', body: '{}' }); state.data = normalizeData(clone(result.data), state.profile); render(); setDirty(false); toast(result.message); } catch (error) { toast(chineseError(error, '配置恢复失败'), true); } });
     window.addEventListener('error', event => { event.preventDefault(); toast(chineseError(event.error || event.message, '页面运行失败，请重新启动控制台'), true); });
+    document.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); save(); } });
     window.addEventListener('unhandledrejection', event => { event.preventDefault(); toast(chineseError(event.reason, '操作失败，请重试'), true); });
     window.addEventListener('beforeunload', e => { if (state.dirty || state.credentialsDirty) { e.preventDefault(); e.returnValue = ''; } });
     const HELP_DATA = [
@@ -1189,7 +1141,7 @@
     const savedPanel = localStorage.getItem('radar-active-panel');
     const validPanel = savedPanel && document.querySelector(`#panelGrid .panel[data-panel="${savedPanel}"]`);
     showPanel(validPanel ? savedPanel : 'keywords');
-    setupPanels(); loadProfiles(); loadHistory(); scanMaintenance(); initUpdatePanel();
+    loadProfiles(); loadHistory(); scanMaintenance(); initUpdatePanel();
   </script>
 </body>
 </html>

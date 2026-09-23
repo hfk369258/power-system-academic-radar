@@ -1,6 +1,6 @@
 ; 电力系统文献雷达 — Inno Setup 安装包脚本
 ; 构建方式（先运行 scripts/build_exe.ps1 生成 dist\_release）：
-;   ISCC.exe /DAppVersion=0.4.0 installer\power-system-radar-ui.iss
+;   ISCC.exe /DAppVersion=0.4.1 installer\power-system-radar-ui.iss
 ; 升级安装时沿用旧目录（UsePreviousAppDir），且安装包不含用户数据，
 ; 因此 profiles/、work/、logs/、凭据文件全部原样保留。
 

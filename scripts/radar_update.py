@@ -25,8 +25,8 @@ import zipfile
 from pathlib import Path
 from typing import Any, Callable
 
-# 发布版本号：与 git tag（如 v0.4.0）保持一致，发布新版本时同步修改这里。
-APP_VERSION = "0.4.0"
+# 发布版本号：与 git tag（如 v0.4.1）保持一致，发布新版本时同步修改这里。
+APP_VERSION = "0.4.1"
 
 GITHUB_REPO = "hfk369258/power-system-academic-radar"
 RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
